@@ -29,25 +29,32 @@ logger.addHandler(handler)
 
 
 def create_data_description(data, **kwargs):
+
+    feature_dict = make_feature_dict(data)
+    types = ["bytes_list", "float_list", "int64_list"]
+
+    def to_string(feature) -> str:
+        return next(
+            iter(
+                filter(lambda x: x[1], zip(types, [feature.HasField(x) for x in types]))
+            )
+        )[0]
+
+    type_dict = {k: to_string(v) for k, v in feature_dict.items()}
     description_string = "\n".join(
-        [
-            '"{}" (ndarray {})'.format(a, b.dtype)
-            if isinstance(b, np.ndarray)
-            else '"{}" (bytes)'.format(a)
-            for a, b in data.items()
-        ]
+        ["{} ({})".format(k, v) for k, v in type_dict.items()]
     )
-    description_string += "\n" + "\n".join(
+    description_string += "\nMeta:\n" + "\n".join(
         "{}: {}".format(k, v) for k, v in kwargs.items()
     )
     description_dict = {
-        **kwargs,
-        **{a: str(b.dtype) for a, b in data.items() if isinstance(b, np.ndarray)},
+        "meta": kwargs,
+        "entries": type_dict,
     }
     return description_string, description_dict
 
 
-def make_example(data):
+def make_feature_dict(data):
     def _float_value_feature(v):
         return tf.train.Feature(float_list=tf.train.FloatList(value=[v]))
 
@@ -140,7 +147,11 @@ def make_example(data):
             )
 
         feature_dict[key] = feature
+    return feature_dict
 
+
+def make_example(data):
+    feature_dict = make_feature_dict(data)
     return tf.train.Example(features=tf.train.Features(feature=feature_dict))
 
 
@@ -400,7 +411,7 @@ def convert_from_split(
         dataset_name = "dataset"
 
     dataset_files_dir = output_dir / "dataset_files"
-    dataset_files_dir.mkdir()
+    dataset_files_dir.mkdir(exist_ok=True)
     file_logger_obj = file_logger(
         target_log_dir=dataset_files_dir, dataset_name=dataset_name
     )
