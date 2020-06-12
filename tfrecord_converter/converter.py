@@ -4,7 +4,7 @@
 Converts HDF5 data files to TFRecords file format with Example protos.
 """
 
-import os
+import pathlib
 import math
 import collections
 import logging
@@ -148,7 +148,7 @@ def tf_writer_coroutine(
     reader_func: typing.Union[
         typing.Callable[[typing.Any, str], typing.Dict[str, typing.Any]], None
     ],
-    output_dir: str,
+    output_dir: pathlib.Path,
     dataset_name: str,
     total_number_of_samples: int,
     samples_per_file: int,
@@ -176,9 +176,12 @@ def tf_writer_coroutine(
     # filename formatting
     digits = math.ceil(math.log10(total_number_of_files + 1))
     f_str = "0{}d".format(digits)
-    filename_formatter = os.path.join(
-        output_dir, dataset_name + "_{{:{}}}_of_{{:{}}}.tfrecords".format(f_str, f_str)
+    filename_template = dataset_name + "_{{:{}}}_of_{{:{}}}.tfrecords".format(
+        f_str, f_str
     )
+
+    def make_filepath(c: int, total: int) -> pathlib.Path:
+        return output_dir / filename_template.format(c, total)
 
     data = None
     processed_counter = 0
@@ -196,11 +199,12 @@ def tf_writer_coroutine(
     try:
         for file_counter in range(total_number_of_files):  # < loop over all files
 
-            f_name = filename_formatter.format(file_counter, total_number_of_files)
+            f_path = make_filepath(file_counter, total_number_of_files)
             if file_logger_obj:
-                file_logger_obj.send((f_name, dataset_name))
-            logger.debug("Opened {}".format(f_name))
-            with tf.io.TFRecordWriter(f_name) as writer:
+                file_logger_obj.send((f_path, dataset_name))
+
+            logger.debug("Opened {}".format(str(f_path)))
+            with tf.io.TFRecordWriter(str(f_path)) as writer:
 
                 samples_written_in_file = 0
                 while True:  # < loop over samples in current file
@@ -244,7 +248,7 @@ def tf_writer_coroutine(
                         if samples_written_in_file == samples_per_file:
                             logger.debug(
                                 "{} samples written to '{}'.".format(
-                                    samples_written_in_file, f_name
+                                    samples_written_in_file, str(f_path)
                                 )
                             )
                             break
@@ -284,20 +288,18 @@ def tf_writer_coroutine(
         desc_string, desc_dict = create_data_description(
             data, no_samples=total_number_of_samples, no_files=total_number_of_files
         )
-        data_desc_name = os.path.join(
-            output_dir, "tf_dataset_description_{}.txt".format(dataset_name)
+        data_desc_name = str(
+            output_dir / "tf_dataset_description_{}.txt".format(dataset_name)
         )
         with open(data_desc_name, "w") as output_dataset_desc_file:
             output_dataset_desc_file.write(desc_string)
         write_data_as_yaml(
             desc_dict,
-            os.path.join(
-                output_dir, "tf_dataset_description_{}.yaml".format(dataset_name)
-            ),
+            str(output_dir / "tf_dataset_description_{}.yaml".format(dataset_name)),
         )
 
 
-def file_logger(target_log_dir, dataset_name="dataset"):
+def file_logger(target_log_dir: pathlib.Path, dataset_name="dataset"):
     file_dict = collections.defaultdict(list)
     try:
         while True:
@@ -308,23 +310,20 @@ def file_logger(target_log_dir, dataset_name="dataset"):
         split_lists = []
         for split_name, file_list in file_dict.items():
             # write file_list
-            f_list_name = os.path.join(
-                target_log_dir,
-                "tfrecord_{}_{}.dataset".format(dataset_name, split_name),
-            )
+            f_list_name = target_log_dir / "{}.dataset".format(split_name)
+            split_lists.append(f_list_name)
+            f_list_name = str(f_list_name)
+
             with open(f_list_name, "w") as output_tf_list_file:
                 for f in file_list:
-                    output_tf_list_file.write(os.path.abspath(f) + "\n")
+                    output_tf_list_file.write(str(f.resolve()) + "\n")
 
-            split_lists.append(f_list_name)
             logger.info("List of files written to {}".format(f_list_name))
 
-        split_list_name = os.path.join(
-            target_log_dir, "tfrecord_{}.lists".format(dataset_name)
-        )
+        split_list_name = str(target_log_dir / "{}.lists".format(dataset_name))
         with open(split_list_name, "w") as output_tf_list_file:
             for f in split_lists:
-                output_tf_list_file.write(os.path.abspath(f) + "\n")
+                output_tf_list_file.write(str(f.resolve()) + "\n")
         logger.info("List of splits written to {}".format(split_list_name))
 
 
@@ -370,7 +369,7 @@ def convert_single_set(
 def convert_from_split(
     sample_objects: collections.Iterable,
     reader_func: typing.Callable[[typing.Any], typing.Dict[str, typing.Any]],
-    output_dir,
+    output_dir: pathlib.Path,
     map_samples_to_id_func,
     samples_per_file=None,
     split=None,
@@ -385,10 +384,10 @@ def convert_from_split(
         print("Empty split. Nothing to do.")
         return
 
-    dataset_paths = {k: os.path.join(output_dir, k) for k in s_list}
+    dataset_paths: {str: pathlib.Path} = {k: output_dir / k for k in s_list}
     for p in dataset_paths.values():
         try:
-            os.makedirs(p)
+            p.mkdir(exist_ok=True)
         except FileExistsError:
             pass
 
@@ -399,7 +398,12 @@ def convert_from_split(
         dataset_name = split["name"]
     except KeyError:
         dataset_name = "dataset"
-    file_logger_obj = file_logger(target_log_dir=output_dir, dataset_name=dataset_name)
+
+    dataset_files_dir = output_dir / "dataset_files"
+    dataset_files_dir.mkdir()
+    file_logger_obj = file_logger(
+        target_log_dir=dataset_files_dir, dataset_name=dataset_name
+    )
     file_logger_obj.send(None)
 
     max_split_name_len = max(map(len, s_list.keys()))

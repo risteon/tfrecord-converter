@@ -15,7 +15,7 @@ def read_split(split_file):
 
 
 def write_data_as_yaml(data, output_file):
-    with open(output_file, 'w') as o:
+    with open(str(output_file), 'w') as o:
         yaml = YAML()
         yaml.dump(data, o)
 

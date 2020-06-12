@@ -4,7 +4,6 @@
 Console script for tfrecord_converter.
 """
 
-import os
 import pathlib
 import inspect
 import click
@@ -36,7 +35,7 @@ from .converter import convert_from_split, convert_single_set
 def process_hdf5(
     files, output, reader, split, chunk_size, shuffle, overwrite, allow_missing
 ):
-
+    output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
     if reader not in reader_funcs:
@@ -47,7 +46,7 @@ def process_hdf5(
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     options = {i: values[i] for i in args}
-    write_data_as_yaml(options, os.path.join(output, "tf_dataset_flags.txt"))
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
 
     hdf5_input_files = get_data_files_from_user_argument(files)
     # it might be faster to process the files 'in order'
@@ -84,14 +83,14 @@ def process_kitti_semantics(
     chunk_size,
     overwrite,
 ):
-
+    output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
     # save all options of this function
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     options = {i: values[i] for i in args}
-    write_data_as_yaml(options, os.path.join(output, "tf_dataset_flags.txt"))
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
 
     # we have to assume that sorting the files creates corresponding pairs
     velodyne_input_files = get_files_flat(
@@ -126,7 +125,7 @@ def process_kitti_semantics(
 def process_nuscenes(
     nuscenes_root, output_folder, chunk_size, overwrite, max_number_scenes, ns_version
 ):
-
+    output_folder = pathlib.Path(output_folder)
     make_output_directory(output_folder, overwrite)
 
     from .nuscenes_reader import NuscenesReader
@@ -138,8 +137,8 @@ def process_nuscenes(
     )
 
     # write split for reference
-    split_file_name = os.path.join(
-        output_folder, "objects_gt_sampling_split_{}.yaml".format(reader.split["name"])
+    split_file_name = str(
+        output_folder / "objects_gt_sampling_split_{}.yaml".format(reader.split["name"])
     )
     write_data_as_yaml(reader.split, split_file_name)
 
@@ -162,7 +161,7 @@ def process_nuscenes(
 def create_objects_from_nuscenes(
     nuscenes_root, output, chunk_size, overwrite, ns_version
 ):
-
+    output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
     from .nuscenes_reader import NuscenesObjectsReader
@@ -170,8 +169,8 @@ def create_objects_from_nuscenes(
     reader = NuscenesObjectsReader(nuscenes_root=nuscenes_root, version=ns_version)
 
     # write split for reference
-    split_file_name = os.path.join(
-        output, "tf_dataset_split_{}.yaml".format(reader.split["name"])
+    split_file_name = str(
+        output / "tf_dataset_split_{}.yaml".format(reader.split["name"])
     )
     write_data_as_yaml(reader.split, split_file_name)
 
@@ -198,14 +197,14 @@ def create_objects_from_hdf5(files, output, chunk_size, split, overwrite, datase
     Splits data according to given split and creates tfrecords for each object class
     separately. Sample IDs will be: {sample}_#{obj_id:03d}_{category}
     """
-
+    output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
     # save all options of this function
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     options = {i: values[i] for i in args}
-    write_data_as_yaml(options, os.path.join(output, "tf_dataset_flags.txt"))
+    write_data_as_yaml(options, output / "tf_dataset_flags.txt")
 
     hdf5_input_files = get_data_files_from_user_argument(files)
     # it might be faster to process the files 'in order'
@@ -224,9 +223,7 @@ def create_objects_from_hdf5(files, output, chunk_size, split, overwrite, datase
     objects = HDF5Objects(hdf5_input_files, select_split, dataset_name)
 
     # write split for reference
-    split_file_name = os.path.join(
-        output, "split_{}.yaml".format(objects.split["name"])
-    )
+    split_file_name = str(output / "split_{}.yaml".format(objects.split["name"]))
     write_data_as_yaml(objects.split, split_file_name)
 
     # convert. id func removes the leading / of the hdf5 subgroup
@@ -268,7 +265,7 @@ def process_kitti_raw(
         "kitti_semantics",
         kitti_raw_path,
         kitti_raw_processed_path,
-        output,
+        pathlib.Path(output),
         split,
         chunk_size,
         shuffle,
@@ -305,7 +302,7 @@ def process_kitti_accumulated(
         "kitti_accumulated",
         kitti_raw_path,
         kitti_raw_processed_path,
-        output,
+        pathlib.Path(output),
         split,
         chunk_size,
         shuffle,
@@ -334,13 +331,14 @@ def process_kitti_lidar_semantics(
     """ Process KITTI LiDAR labels ('semantic-kitti')
 
     """
+    output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
     # save all options of this function
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     options = {i: values[i] for i in args}
-    write_data_as_yaml(options, os.path.join(output, "tf_dataset_flags.txt"))
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
 
     from .semantic_kitti_reader import SemanticKittiReader
 
@@ -349,7 +347,7 @@ def process_kitti_lidar_semantics(
     )
 
     # write split for reference
-    split_file_name = os.path.join(output, "split_{}.yaml".format(reader.split["name"]))
+    split_file_name = str(output / "split_{}.yaml".format(reader.split["name"]))
     write_data_as_yaml(reader.split, split_file_name)
 
     convert_from_split(
@@ -366,7 +364,7 @@ def _process_kitti_raw_with(
     sequence_generator_name,
     kitti_raw_path,
     kitti_raw_processed_path,
-    output,
+    output: pathlib.Path,
     split,
     chunk_size,
     shuffle,
@@ -383,7 +381,7 @@ def _process_kitti_raw_with(
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     options = {i: values[i] for i in args}
-    write_data_as_yaml(options, os.path.join(output, "tf_dataset_flags.txt"))
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
 
     split_dict = process_split(split, output, shuffle)
 

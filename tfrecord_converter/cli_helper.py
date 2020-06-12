@@ -130,8 +130,8 @@ def query_user_yes_no(question, default="yes") -> bool:
             sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
 
 
-def make_output_directory(output, overwrite: bool = False):
-    output = pathlib.Path(output).absolute()
+def make_output_directory(output: pathlib.Path, overwrite: bool = False):
+    output = output.absolute()
     # if output dir exists, abort. Otherwise create it
     if output.exists():
         if not output.is_dir():
@@ -160,14 +160,14 @@ def make_output_directory(output, overwrite: bool = False):
     output.mkdir(exist_ok=True, parents=True)
 
 
-def process_split(split_file: str, output_path: str, shuffle: bool = False):
+def process_split(split_file: str, output_path: pathlib.Path, shuffle: bool = False):
     split_dict = read_split(split_file)
     if shuffle:
         [random.shuffle(l_) for l_ in split_dict["data"].values()]
 
     # write split for reference
-    split_file_name = os.path.join(
-        output_path, "dataset_split_{}.yaml".format(split_dict["name"])
+    split_file_name = str(
+        output_path / "dataset_split_{}.yaml".format(split_dict["name"])
     )
     write_data_as_yaml(split_dict, split_file_name)
     return split_dict
