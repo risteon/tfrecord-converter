@@ -18,6 +18,14 @@ from .files_io import write_data_as_yaml
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter(
+    fmt="%(asctime)s - %(levelname)s - %(module)s - %(message)s"
+)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 
 def create_data_description(data, **kwargs):
@@ -59,9 +67,37 @@ def make_example(data):
     for key, value in data.items():
 
         if isinstance(value, tf.Tensor):
-            value = value.numpy()
+            if value.shape.ndims > 1:
+                raise TypeError(
+                    "Only one-dimensional arrays supported."
+                    "Conflicting entry: {}".format(key)
+                )
+            if value.dtype == tf.string:
+                if value.shape != ():
+                    raise TypeError(
+                        "Only scalar string tensors supported."
+                        "Conflicting entry: {}".format(key)
+                    )
+                feature = _bytes_feature(value.numpy())
+            elif value.dtype == tf.dtypes.float32:
+                feature = (
+                    _float_array_feature(value)
+                    if value.ndim == 1
+                    else _float_value_feature(value)
+                )
+            elif value.dtype == tf.dtypes.int64:
+                feature = (
+                    _int_array_feature(value)
+                    if value.ndim == 1
+                    else _int_value_feature(value)
+                )
+            else:
+                raise TypeError(
+                    "Unsupported dtype. Only int64 and float32 currently supported."
+                    " Key: {}. Data type: {}".format(key, type(value))
+                )
 
-        if isinstance(value, np.ndarray):
+        elif isinstance(value, np.ndarray):
             if value.ndim > 1:
                 raise TypeError(
                     "Only one-dimensional arrays supported."
@@ -83,24 +119,27 @@ def make_example(data):
             else:
                 raise TypeError(
                     "Unsupported dtype. Only int64 and float32 currently supported."
+                    " Key: {}. Data type: {}".format(key, type(value))
                 )
-            feature_dict[key] = feature
+
         elif isinstance(value, np.float32):
-            feature_dict[key] = _float_value_feature(value)
+            feature = _float_value_feature(value)
         elif isinstance(value, np.int64):
-            feature_dict[key] = _int_value_feature(value)
+            feature = _int_value_feature(value)
         elif isinstance(value, bytes):
-            feature_dict[key] = _bytes_feature(value)
+            feature = _bytes_feature(value)
         elif isinstance(value, str):
-            feature_dict[key] = _bytes_feature(value.encode("utf-8"))
+            feature = _bytes_feature(value.encode("utf-8"))
         elif isinstance(value, int):
-            feature_dict[key] = _int_value_feature(np.int64(value))
+            feature = _int_value_feature(np.int64(value))
         else:
             raise TypeError(
                 "Unsupported data type returned. Key: {}. Data type: {}".format(
                     key, type(value)
                 )
             )
+
+        feature_dict[key] = feature
 
     return tf.train.Example(features=tf.train.Features(feature=feature_dict))
 
@@ -160,7 +199,7 @@ def tf_writer_coroutine(
             f_name = filename_formatter.format(file_counter, total_number_of_files)
             if file_logger_obj:
                 file_logger_obj.send((f_name, dataset_name))
-            logger.info("Opened {}".format(f_name))
+            logger.debug("Opened {}".format(f_name))
             with tf.io.TFRecordWriter(f_name) as writer:
 
                 samples_written_in_file = 0
@@ -203,8 +242,8 @@ def tf_writer_coroutine(
 
                         samples_written_in_file += 1
                         if samples_written_in_file == samples_per_file:
-                            logger.info(
-                                "Written {} samples to '{}'.".format(
+                            logger.debug(
+                                "{} samples written to '{}'.".format(
                                     samples_written_in_file, f_name
                                 )
                             )
@@ -337,11 +376,8 @@ def convert_from_split(
     split=None,
     progress_bar: bool = True,
 ):
-
     assert reader_func is not None
     assert output_dir is not None
-
-    logging.basicConfig(level=logging.DEBUG, format="%(message)s")
 
     s_list = {k: set(v) for k, v in split["data"].items()}
 

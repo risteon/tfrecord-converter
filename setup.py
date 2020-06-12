@@ -10,10 +10,8 @@ with open("README.rst") as readme_file:
 
 requirements = [
     "Click>=6.0",
-    "h5py",
     "numpy",
     "ruamel.yaml",
-    "pyquaternion",
 ]
 
 setup_requirements = ["pytest-runner", "tqdm"]
@@ -23,7 +21,11 @@ test_requirements = [
     # TODO: Put package test requirements here
 ]
 
-extra_requirements = {}
+extra_requirements = {
+    "nuscenes": ["nuscenes-devkit"],
+    "hdf5": ["h5py", "pyquaternion"],
+}
+
 
 setup(
     name="tfrecord_converter",
@@ -32,7 +34,7 @@ setup(
     long_description=readme,
     author="Christoph Rist",
     author_email="c.rist@posteo.de",
-    url="https://github.com/risteon/tfrecord_converter",
+    url="https://github.com/risteon/tfrecord-converter",
     packages=find_packages(include=["tfrecord_converter"]),
     entry_points={
         "console_scripts": [
@@ -42,7 +44,7 @@ setup(
             "tfrecord_converter.cli:process_kitti_accumulated",
             "tfrecord_process_kitti_semantics="
             "tfrecord_converter.cli:process_kitti_semantics",
-            "tfrecord_process_nuscenes=tfrecord_converter.cli:process_nuscenes",
+            "tfrecord_convert_nuscenes=tfrecord_converter.cli:process_nuscenes",
             "tfrecord_create_objects_from_hdf5="
             "tfrecord_converter.cli:create_objects_from_hdf5",
             "tfrecord_create_objects_from_nuscenes=tfrecord_converter.cli:"
@@ -61,9 +63,8 @@ setup(
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Natural Language :: English",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
     ],
     test_suite="tests",
     tests_require=test_requirements,

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
-import shutil
+import sys
 import collections
 import h5py
 import pathlib
@@ -97,6 +97,39 @@ def is_empty(p: pathlib.Path):
         return True
 
 
+def query_user_yes_no(question, default="yes") -> bool:
+    """ StackOverflow https://stackoverflow.com/a/3041990
+
+    Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+        It must be "yes" (the default), "no" or None (meaning
+        an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+
+
 def make_output_directory(output, overwrite: bool = False):
     output = pathlib.Path(output).absolute()
     # if output dir exists, abort. Otherwise create it
@@ -108,17 +141,21 @@ def make_output_directory(output, overwrite: bool = False):
                 )
             )
         if not is_empty(output):
+
+            msg = "Output directory {} already exists and is not empty.".format(
+                str(output)
+            )
+
             if overwrite:
-                try:
-                    shutil.rmtree(str(output))
-                except OSError:
-                    pass
-            else:
-                raise RuntimeError(
-                    "Output directory {} already exists and is not empty.".format(
-                        str(output)
-                    )
+                print(msg)
+                continue_to_delete = query_user_yes_no(
+                    "Continue to write into '{}'?".format(str(output)), default="no"
                 )
+                if not continue_to_delete:
+                    raise RuntimeError("User abort.")
+
+            else:
+                raise RuntimeError(msg)
 
     output.mkdir(exist_ok=True, parents=True)
 

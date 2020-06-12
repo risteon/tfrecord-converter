@@ -1,5 +1,5 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 """
 
 """
@@ -12,7 +12,7 @@ import numpy as np
 import tensorflow as tf
 
 from nuscenes.nuscenes import NuScenes
-from nuscenes.utils.data_classes import LidarPointCloud
+from nuscenes.utils.data_classes import LidarPointCloud, RadarPointCloud
 from nuscenes.utils.splits import train as split_train
 from nuscenes.utils.splits import val as split_val
 from nuscenes.utils.geometry_utils import transform_matrix
@@ -22,7 +22,34 @@ from pyquaternion import Quaternion
 from .common import ObjectClass
 from .algorithm import assign_point_cloud_to_bounding_boxes
 
+# Full mapping of all NuScene classes for pseudo semseg
+NUSCENES_SEM_CLASSES = {
+    "animal": 0,
+    "human.pedestrian.adult": 1,
+    "human.pedestrian.child": 2,
+    "human.pedestrian.construction_worker": 3,
+    "human.pedestrian.personal_mobility": 4,
+    "human.pedestrian.police_officer": 5,
+    "human.pedestrian.stroller": 6,
+    "human.pedestrian.wheelchair": 7,
+    "movable_object.barrier": 8,
+    "movable_object.debris": 9,
+    "movable_object.pushable_pullable": 10,
+    "movable_object.trafficcone": 11,
+    "vehicle.bicycle": 12,
+    "vehicle.bus.bendy": 13,
+    "vehicle.bus.rigid": 14,
+    "vehicle.car": 15,
+    "vehicle.construction": 16,
+    "vehicle.emergency.ambulance": 17,
+    "vehicle.emergency.police": 18,
+    "vehicle.motorcycle": 19,
+    "vehicle.trailer": 20,
+    "vehicle.truck": 21,
+    "static_object.bicycle_rack": 22,
+}
 
+# Reduced mapping for object detection/classification
 NUSCENES_OBJECT_CLASSES = {
     "vehicle.car": ObjectClass.PASSENGER_CAR,
     "vehicle.truck": ObjectClass.TRUCK,
@@ -30,6 +57,10 @@ NUSCENES_OBJECT_CLASSES = {
     "vehicle.bicycle": ObjectClass.CYCLIST,
     "human.pedestrian": ObjectClass.PEDESTRIAN,
 }
+
+
+def nuscenes_category_to_semantic_class(cat: str) -> int:
+    return NUSCENES_SEM_CLASSES.get(cat, -1)
 
 
 def nuscenes_category_reduced(cat: str) -> str:
@@ -50,18 +81,31 @@ class NuscenesReader:
 
     scene_split_lists = {"train": set(split_train), "val": set(split_val)}
     sample_id_template = "ns_{}_{:02d}"
-    np_str_to_cls = np.vectorize(nuscenes_category_to_object_class, otypes=[np.int64])
+    np_str_to_cat = np.vectorize(nuscenes_category_to_object_class, otypes=[np.int64])
+    np_str_to_sem = np.vectorize(nuscenes_category_to_semantic_class, otypes=[np.int64])
 
     # Nuscenes LiDAR has x-axis to vehicle right and y-axis to front.
     # Turn this 90 degrees to have x-axis facing the front
-    turn_matrix = np.asarray(
-        [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float64
+    turn_matrix = np.linalg.inv(
+        np.asarray(
+            [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float64
+        )
     )
+    turn_quaternion = Quaternion(axis=(0.0, 0.0, 1.0), radians=-np.pi / 2.0)
 
     def __init__(self, nuscenes_root, version="v1.0-trainval", max_scenes=None):
         self.nusc = NuScenes(version=version, dataroot=nuscenes_root, verbose=False)
         self.root = pathlib.Path(nuscenes_root)
         self.ns_lidar_pts_to_calculated_diff = 0
+
+        # assert that the training targets range from 0 - (|mapping| - 1)
+        assert len(set(NUSCENES_SEM_CLASSES.values())) == len(NUSCENES_SEM_CLASSES)
+        assert all(
+            a == b
+            for a, b in zip(
+                sorted(NUSCENES_SEM_CLASSES.values()), range(len(NUSCENES_SEM_CLASSES))
+            )
+        )
 
         split_name = {
             "v1.0-trainval": "nuscenes_default",
@@ -107,7 +151,7 @@ class NuscenesReader:
             self._next_scene()
             return self._sample_iter.__next__()
 
-    def make_sample_id(self, sample: typing.Tuple[dict, int]):
+    def make_sample_id(self, sample: typing.Tuple[dict, int]) -> str:
         scene = self.nusc.get("scene", sample[0]["scene_token"])
         return self.sample_id_template.format(scene["name"], sample[1])
 
@@ -134,129 +178,213 @@ class NuscenesReader:
         self._sample_iter = SampleIteration(self._current_scene, self.nusc)
 
     def read(self, sample: typing.Tuple[dict, int], _sample_id: str):
-        d = self.read_internal(sample)
-        return {
-            "sample_id": d["sample_id"].encode("utf-8"),
-            "point_cloud": d["point_cloud"].flatten(),
-            "bounding_boxes_3d_spatial": d["bounding_boxes_3d_spatial"].flatten(),
-            "bounding_boxes_3d_class": d["bounding_boxes_3d_class"],
-            "bounding_boxes_points": d["bounding_boxes_points"],
-            "bounding_boxes_3d_category": tf.io.serialize_tensor(
-                tf.convert_to_tensor(d["bounding_boxes_3d_category"])
-            ),
-        }
+        d = self._read_sample(sample)
 
-    def read_internal(self, sample: typing.Tuple[dict, int]):
+        def convert(entry):
+            """Convert data types to be compatible with tfrecords features."""
+            if isinstance(entry, str):
+                return entry.encode("utf-8")
+            if isinstance(entry, np.ndarray):
+                entry = entry.flatten()
+                if not np.issubdtype(entry.dtype, np.number):
+                    entry = tf.io.serialize_tensor(tf.convert_to_tensor(entry))
+                elif entry.dtype == np.float64:
+                    entry = entry.astype(np.float32)
+                return entry
+            return entry
+
+        return {k: convert(v) for k, v in d.items()}
+
+    def _read_sample(self, sample: typing.Tuple[dict, int]):
+
+        radars = ["RADAR_FRONT", "RADAR_FRONT_LEFT", "RADAR_FRONT_RIGHT"]
+        cameras = ["CAM_FRONT"]
+
         sample_id = self.make_sample_id(sample)
         sample, sample_index = sample
+
         lidar_sample_data = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
         assert lidar_sample_data["is_key_frame"]
-        ego_pose_lidar = self.nusc.get("ego_pose", lidar_sample_data["ego_pose_token"])
-        # [(x y z I) x P]. Intensity from 0.0 to 255.0
-        point_cloud = LidarPointCloud.from_file(
-            self._make_path(lidar_sample_data["filename"])
+
+        data_path, box_list, cam_intrinsic = self.nusc.get_sample_data(
+            sample["data"]["LIDAR_TOP"]
         )
+
+        # POINT CLOUD [(x y z I) x P]. Intensity from 0.0 to 255.0
+        point_cloud = LidarPointCloud.from_file(data_path)
         if point_cloud.points.dtype != np.float32:
             raise RuntimeError("Point cloud has wrong data type.")
-        pc = point_cloud.points.transpose()
-        calibration_lidar = self.nusc.get(
-            "calibrated_sensor", lidar_sample_data["calibrated_sensor_token"]
-        )
+        # -> [P x (x y z I)]
+        point_cloud = point_cloud.points.transpose()
 
-        annotations = self._get_annotations_in_lidar_coords(
-            ego_pose_lidar,
-            calibration_lidar,
-            [
-                self.nusc.get("sample_annotation", ann_token)
-                for ann_token in sample["anns"]
-            ],
-            pc,
+        # create transform matrices for all boxes
+        r = np.asarray([x.rotation_matrix for x in box_list])
+        c = np.asarray([x.center for x in box_list])
+        rc = np.concatenate((r, c[:, :, None]), axis=-1)
+        tfs = np.concatenate(
+            (
+                rc,
+                np.broadcast_to(
+                    tf.constant([0, 0, 0, 1], dtype=rc.dtype)[None, None, :],
+                    [rc.shape[0], 1, 4],
+                ),
+            ),
+            axis=1,
         )
+        # NuScenes format: width, length, height. Reorder to l w h
+        box_dims_lwh = np.asarray([x.wlh for x in box_list], dtype=tfs.dtype)[
+            :, [1, 0, 2]
+        ]
 
-        self.ns_lidar_pts_to_calculated_diff += annotations["pts_diff"]
-        del annotations["pts_diff"]
-
-        d = {
-            "sample_id": sample_id,
-            **annotations,
-        }
-        return d
-
-    @staticmethod
-    def _get_annotations_in_lidar_coords(
-        vehicle_pose,
-        calibration_lidar,
-        annotations: typing.List[typing.Dict],
-        point_cloud: np.ndarray,
-    ):
-        tf_vehicle_pose = transform_matrix(
-            vehicle_pose["translation"], Quaternion(vehicle_pose["rotation"])
-        )
-        tf_lidar = transform_matrix(
-            calibration_lidar["translation"], Quaternion(calibration_lidar["rotation"])
-        )
-        transf = np.linalg.inv(
-            np.dot(
-                np.dot(tf_vehicle_pose, tf_lidar),
-                np.linalg.inv(NuscenesReader.turn_matrix),
-            )
+        total_points_per_box, mapping = assign_point_cloud_to_bounding_boxes(
+            point_cloud, bounding_boxes_tfs=tfs, bounding_boxes_dims=box_dims_lwh,
         )
 
         # rotate point cloud 90 degrees around z-axis,
         # so that x-axis faces front of vehicle
-        x = point_cloud[:, 0:1]
+        data_cam = point_cloud[:, 0:1]
         y = point_cloud[:, 1:2]
-        point_cloud = np.concatenate((y, -x, point_cloud[:, 2:4]), axis=-1)
+        point_cloud = np.concatenate((y, -data_cam, point_cloud[:, 2:4]), axis=-1)
 
         dt = np.float32
-        # numpy stack does not handle empty lists (== no annotated objects)
-        if annotations:
-            tfs = np.stack(
-                [
-                    transform_matrix(
-                        annotation["translation"], Quaternion(annotation["rotation"])
-                    )
-                    for annotation in annotations
-                ]
-            )
-            tfs = np.matmul(transf, tfs)
-            # [(x y z) (w x y z) (l w h)]
-            bboxes_spatial = np.empty(shape=(len(tfs), 10), dtype=dt)
-            bboxes_spatial[:, 0:3] = tfs[:, :3, 3].astype(dt)
-            bboxes_spatial[:, 3:7] = np.stack(
-                [Quaternion(matrix=x).elements.astype(dt) for x in tfs]
-            )
-            # NuScenes format: width, length, height. Reorder to l w h
-            bboxes_spatial[:, 7:10] = (
-                np.stack([np.array(x["size"]) for x in annotations])[:, [1, 0, 2]]
-            ).astype(dt)
-        else:
-            # [(x y z) (w x y z) (l w h)]
-            bboxes_spatial = np.empty(shape=(0, 10), dtype=dt)
-            tfs = np.empty(shape=(0, 4, 4), dtype=np.float64)
-
-        cats_str = np.array([annotation["category_name"] for annotation in annotations])
-        cats = NuscenesReader.np_str_to_cls(cats_str).astype(np.int64)
-        lidar_pts = np.asarray([x["num_lidar_pts"] for x in annotations])
-
-        total_points_per_box, mapping = assign_point_cloud_to_bounding_boxes(
-            point_cloud,
-            bounding_boxes_tfs=tfs,
-            bounding_boxes_dims=bboxes_spatial[:, 7:10],
+        # 3D BOXES IN LIDAR COORDS [(x y z) (w x y z) (l w h)]
+        bboxes_spatial = np.empty(shape=(len(box_list), 10), dtype=dt)
+        center_pos = np.asarray([x.center for x in box_list], dtype=dt)
+        bboxes_spatial[:, 0] = center_pos[:, 1]
+        bboxes_spatial[:, 1] = -center_pos[:, 0]
+        bboxes_spatial[:, 2] = center_pos[:, 2]
+        bboxes_spatial[:, 3:7] = np.asarray(
+            [(self.turn_quaternion * x.orientation).q for x in box_list], dtype=dt
         )
+        bboxes_spatial[:, 7:10] = box_dims_lwh.astype(dt)
 
+        object_str = np.array([x.name for x in box_list], dtype=np.unicode)
+        object_category = NuscenesReader.np_str_to_cat(object_str).astype(np.int64)
+        class_value = NuscenesReader.np_str_to_sem(object_category).astype(np.int64)
+        lidar_pts = np.asarray(
+            [
+                x["num_lidar_pts"]
+                for x in [
+                    self.nusc.get("sample_annotation", ann_token)
+                    for ann_token in sample["anns"]
+                ]
+            ]
+        )
+        # rotate box transforms (same as bboxes_spatial)
+        tfs = np.matmul(np.linalg.inv(self.turn_matrix)[None, ...], tfs)
+
+        # track to see if box calculation gives the same results as the
+        # lidar points counter from the nuscenes dataset
         diff = np.sum(np.abs(lidar_pts - total_points_per_box))
+        self.ns_lidar_pts_to_calculated_diff += diff
 
-        return {
+        # LiDAR extrinsic calibration
+        sd_lidar = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+        calibration_lidar = self.nusc.get(
+            "calibrated_sensor", sd_lidar["calibrated_sensor_token"]
+        )
+        tf_lidar = transform_matrix(
+            calibration_lidar["translation"], Quaternion(calibration_lidar["rotation"])
+        )
+        # vehicle -> point cloud coords (turned by 90 degrees)
+        tf_vehicle_pc = np.linalg.inv(np.dot(tf_lidar, NuscenesReader.turn_matrix))
+
+        # CAMERAS
+        camera_data: [{str: typing.Any}] = [
+            self._read_sensor_data_and_extrinsics(
+                sample, cam_name, tf_vehicle_pc, self._read_camera_data
+            )
+            for cam_name in cameras
+        ]
+        camera_data = {k: v for d in camera_data for k, v in d.items()}
+
+        # RADARS
+        radar_data: [{str: typing.Any}] = [
+            self._read_sensor_data_and_extrinsics(
+                sample, radar_name, tf_vehicle_pc, self._read_radar_data
+            )
+            for radar_name in radars
+        ]
+        radar_data = {k: v for d in radar_data for k, v in d.items()}
+
+        # return feature array. Add sample ID.
+        d = {
+            "sample_id": sample_id,
             "point_cloud": point_cloud,
             "bounding_boxes_3d_spatial": bboxes_spatial,
-            "bounding_boxes_3d_class": cats,
-            "bounding_boxes_points": total_points_per_box.astype(np.int64),
-            "bounding_boxes_3d_category": cats_str,
-            "bounding_boxes_points_mapping": mapping,
             "bounding_boxes_3d_transforms": tfs,
-            "pts_diff": diff,
+            "bounding_boxes_cls_value": class_value,
+            "bounding_boxes_category": object_category,
+            "bounding_boxes_points": total_points_per_box.astype(np.int64),
+            "bounding_boxes_category_str": object_str,
+            "bounding_boxes_points_mapping": mapping,
+            **camera_data,
+            **radar_data,
         }
+        return d
+
+    @staticmethod
+    def _read_sensor_data_and_extrinsics(
+        sample, sensor_name: str, coord_transform: np.ndarray, reader_func
+    ):
+        data, extrinsics = reader_func(sample["data"][sensor_name])
+        extrinsics = np.matmul(coord_transform, extrinsics)
+        return {
+            **{k.format(sensor_name.lower()): v for k, v in data.items()},
+            "{}_extrinsics".format(sensor_name.lower()): extrinsics,
+        }
+
+    def _read_camera_data(self, sample_data_token):
+        sd_record = self.nusc.get("sample_data", sample_data_token)
+        cs_record = self.nusc.get(
+            "calibrated_sensor", sd_record["calibrated_sensor_token"]
+        )
+        sensor_record = self.nusc.get("sensor", cs_record["sensor_token"])
+        assert sensor_record["modality"] == "camera"
+
+        # currently using only keyframes
+        assert sd_record["is_key_frame"]
+
+        data_path = self.nusc.get_sample_data_path(sample_data_token)
+        imsize = (sd_record["width"], sd_record["height"])
+
+        cam_intrinsic = np.array(cs_record["camera_intrinsic"])
+        cam_extrinsics = transform_matrix(
+            cs_record["translation"], Quaternion(cs_record["rotation"])
+        )
+
+        with open(data_path, "rb") as in_file:
+            img_bytes_jpg = in_file.read()
+
+        return (
+            {
+                "{}_jpg": img_bytes_jpg,
+                "{}_size": np.asarray(imsize, dtype=np.int64),
+                "{}_intrinsics": cam_intrinsic.astype(np.float32),
+            },
+            cam_extrinsics,
+        )
+
+    def _read_radar_data(self, sample_data_token):
+        sd_record = self.nusc.get("sample_data", sample_data_token)
+        cs_record = self.nusc.get(
+            "calibrated_sensor", sd_record["calibrated_sensor_token"]
+        )
+        sensor_record = self.nusc.get("sensor", cs_record["sensor_token"])
+        assert sensor_record["modality"] == "radar"
+
+        # currently using only keyframes
+        assert sd_record["is_key_frame"]
+
+        data_path = self.nusc.get_sample_data_path(sample_data_token)
+        radar_point_cloud = RadarPointCloud.from_file(data_path)
+        points = tf.convert_to_tensor(radar_point_cloud.points.transpose())
+
+        radar_extrinsics = transform_matrix(
+            cs_record["translation"], Quaternion(cs_record["rotation"])
+        )
+
+        return {"{}_points": tf.io.serialize_tensor(points)}, radar_extrinsics
 
 
 class NuscenesObjectsReader:
@@ -310,7 +438,7 @@ class NuscenesObjectsReader:
     def _next_sample(self):
         sample = next(self._sample_iterator)
         # read all objects in this frame. Order is the same as annotation tokens
-        data = self.nusc_reader.read_internal(sample)
+        data = self.nusc_reader._read_sample(sample)
         frame_id = data["sample_id"]
         per_box = {
             k: v

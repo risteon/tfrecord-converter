@@ -13,6 +13,14 @@ from .algorithm import assign_point_cloud_to_bounding_boxes
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter(
+    fmt="%(asctime)s - %(levelname)s - %(module)s - %(message)s"
+)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 
 OBJ_CLASS_FROM_STRING = {

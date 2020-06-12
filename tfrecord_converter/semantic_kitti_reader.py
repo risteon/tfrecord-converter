@@ -19,18 +19,23 @@ class SemanticKittiReader:
 
     def __init__(
         self,
-        kitti_raw_root: str,
         kitti_odometry_root: str,
-        semantic_kitti_root: str,
+        semantic_kitti_root: typing.Union[str, None] = None,
+        kitti_raw_root: typing.Union[str, None] = None,
         testset: bool = False,
     ):
-        self.kitti_raw_root = pathlib.Path(kitti_raw_root)
         self.kitti_odometry_root = (
             pathlib.Path(kitti_odometry_root) / "dataset" / "sequences"
         )
         self.semantic_kitti_root = (
-            pathlib.Path(semantic_kitti_root) / "dataset" / "sequences"
+            (pathlib.Path(semantic_kitti_root) / "dataset" / "sequences")
+            if semantic_kitti_root is not None
+            else self.kitti_odometry_root
         )
+        self.kitti_raw_root = (
+            pathlib.Path(kitti_raw_root) if kitti_raw_root is not None else None
+        )
+
         self.config_semantic: pathlib.Path = pathlib.Path(
             __file__
         ).parent.parent / "config" / "semantic-kitti.yaml"
@@ -38,9 +43,9 @@ class SemanticKittiReader:
             __file__
         ).parent.parent / "config" / "kitti_odometry_mapping.yaml"
 
-        self.testset = testset
+        self.testset_flag = testset
 
-        if not self.kitti_raw_root.is_dir():
+        if self.kitti_raw_root is not None and not self.kitti_raw_root.is_dir():
             raise RuntimeError(
                 "Could not find kitti raw root folder '{}'".format(
                     str(self.kitti_raw_root)
@@ -58,6 +63,7 @@ class SemanticKittiReader:
                     str(self.semantic_kitti_root)
                 )
             )
+
         if not self.config_semantic.is_file():
             raise RuntimeError(
                 "Could not find kitti semantic config file '{}'".format(
@@ -87,7 +93,7 @@ class SemanticKittiReader:
 
     def _make_split(self):
         # not processing test
-        valid_splits = ["train", "valid"] if not self.testset else ["test"]
+        valid_splits = ["train", "valid"] if not self.testset_flag else ["test"]
         map_split_names = {"train": "train", "valid": "val", "test": "test"}
         # read config
         with open(str(self.config_semantic), "r") as file_conf_sem:
@@ -102,7 +108,7 @@ class SemanticKittiReader:
         }
         self._split = {
             "name": "semantic_kitti_{}".format(
-                "default" if not self.testset else "test"
+                "default" if not self.testset_flag else "test"
             ),
             "data": {k: [] for k in data_splits.keys()},
         }
@@ -117,7 +123,7 @@ class SemanticKittiReader:
         for split_name, sequences in data_splits.items():
             split_data = self._split["data"][split_name]
             for sequence_index in sequences:
-                if not self.testset:
+                if not self.testset_flag:
                     k_day, k_seq, index_start, index_end = odometry_mapping[
                         sequence_index
                     ]
@@ -191,7 +197,7 @@ class SemanticKittiReader:
             typing.Tuple[str, int, int, int, int], typing.Tuple[int, int]
         ],
     ):
-        if not self.testset:
+        if not self.testset_flag:
             return self.sample_id_template.format(
                 day=sample[0], seq=sample[1], frame=sample[2]
             )
@@ -206,7 +212,7 @@ class SemanticKittiReader:
         sample_id: str,
     ):
 
-        if not self.testset:
+        if not self.testset_flag:
             kitti_sequence = self.kitti_raw_seq_template.format(
                 day=sample[0], seq=sample[1]
             )
@@ -238,7 +244,7 @@ class SemanticKittiReader:
             "point_cloud": point_cloud.flatten(),
         }
 
-        if not self.testset:
+        if not self.testset_flag:
             label_file = (
                 self.semantic_kitti_root
                 / "{:02d}".format(sample[3])
@@ -248,7 +254,7 @@ class SemanticKittiReader:
             label_sem, _ = self.read_label(label_file)
             if label_sem.shape[0] != point_cloud.shape[0]:
                 raise RuntimeError(
-                    "Lenght of labels and point cloud does not match"
+                    "Length of labels and point cloud does not match"
                     "({} and {})".format(str(point_cloud_file), str(label_file))
                 )
             try:

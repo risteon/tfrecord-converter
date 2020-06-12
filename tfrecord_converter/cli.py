@@ -118,16 +118,16 @@ def process_kitti_semantics(
 
 @click.command()
 @click.argument("nuscenes_root", nargs=1)
-@click.option("--output", type=click.Path(exists=False), required=True)
+@click.argument("output_folder", type=click.Path(exists=False), required=True)
 @click.option("--chunk-size", default=50)
 @click.option("--overwrite/--no-overwrite", default=False)
 @click.option("--max-number-scenes", default=-1)
 @click.option("--ns-version", default="v1.0-trainval")
 def process_nuscenes(
-    nuscenes_root, output, chunk_size, overwrite, max_number_scenes, ns_version
+    nuscenes_root, output_folder, chunk_size, overwrite, max_number_scenes, ns_version
 ):
 
-    make_output_directory(output, overwrite)
+    make_output_directory(output_folder, overwrite)
 
     from .nuscenes_reader import NuscenesReader
 
@@ -139,7 +139,7 @@ def process_nuscenes(
 
     # write split for reference
     split_file_name = os.path.join(
-        output, "objects_gt_sampling_split_{}.yaml".format(reader.split["name"])
+        output_folder, "objects_gt_sampling_split_{}.yaml".format(reader.split["name"])
     )
     write_data_as_yaml(reader.split, split_file_name)
 
@@ -147,7 +147,7 @@ def process_nuscenes(
         reader,
         reader_func=reader.read,
         map_samples_to_id_func=reader.make_sample_id,
-        output_dir=output,
+        output_dir=output_folder,
         split=reader.split,
         samples_per_file=chunk_size,
     )
