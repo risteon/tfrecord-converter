@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Converts HDF5 data files to TFRecords file format with Example protos.
+Converts data to TFRecords file format with example protos.
 """
 
 import pathlib
@@ -310,7 +310,9 @@ def tf_writer_coroutine(
         )
 
 
-def file_logger(target_log_dir: pathlib.Path, dataset_name="dataset"):
+def file_logger(
+    target_log_dir: pathlib.Path, dataset_root_dir: pathlib.Path, dataset_name="dataset"
+):
     file_dict = collections.defaultdict(list)
     try:
         while True:
@@ -327,21 +329,26 @@ def file_logger(target_log_dir: pathlib.Path, dataset_name="dataset"):
 
             with open(f_list_name, "w") as output_tf_list_file:
                 for f in file_list:
-                    output_tf_list_file.write(str(f.resolve()) + "\n")
+                    output_tf_list_file.write(
+                        str(pathlib.Path(f.resolve()).relative_to(dataset_root_dir))
+                        + "\n"
+                    )
 
             logger.info("List of files written to {}".format(f_list_name))
 
         split_list_name = str(target_log_dir / "{}.lists".format(dataset_name))
         with open(split_list_name, "w") as output_tf_list_file:
             for f in split_lists:
-                output_tf_list_file.write(str(f.resolve()) + "\n")
+                output_tf_list_file.write(
+                    str(pathlib.Path(f.resolve()).relative_to(dataset_root_dir)) + "\n"
+                )
         logger.info("List of splits written to {}".format(split_list_name))
 
 
 def convert_single_set(
     sample_objects,
     reader_func: typing.Callable[[typing.Any], typing.Dict[str, typing.Any]],
-    output_dir,
+    output_dir: pathlib.Path,
     dataset_name,
     map_samples_to_id_func=lambda _: None,
     samples_per_file=None,
@@ -359,7 +366,12 @@ def convert_single_set(
     if samples_per_file is None or samples_per_file < 1:
         samples_per_file = total_number_of_samples
 
-    file_logger_obj = file_logger(target_log_dir=output_dir, dataset_name=dataset_name)
+    output_dir = output_dir.resolve()
+    dataset_files_dir = output_dir / "dataset_files"
+    dataset_files_dir.mkdir(exist_ok=True)
+    file_logger_obj = file_logger(
+        dataset_files_dir, output_dir, dataset_name=dataset_name
+    )
     file_logger_obj.send(None)
 
     writer = tf_writer_coroutine(
@@ -395,6 +407,7 @@ def convert_from_split(
         print("Empty split. Nothing to do.")
         return
 
+    output_dir = output_dir.resolve()
     dataset_paths: {str: pathlib.Path} = {k: output_dir / k for k in s_list}
     for p in dataset_paths.values():
         try:
@@ -413,7 +426,7 @@ def convert_from_split(
     dataset_files_dir = output_dir / "dataset_files"
     dataset_files_dir.mkdir(exist_ok=True)
     file_logger_obj = file_logger(
-        target_log_dir=dataset_files_dir, dataset_name=dataset_name
+        dataset_files_dir, output_dir, dataset_name=dataset_name
     )
     file_logger_obj.send(None)
 
