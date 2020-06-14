@@ -260,7 +260,7 @@ class NuscenesReader:
 
         object_str = np.array([x.name for x in box_list], dtype=np.unicode)
         object_category = NuscenesReader.np_str_to_cat(object_str).astype(np.int64)
-        class_value = NuscenesReader.np_str_to_sem(object_category).astype(np.int64)
+        class_value = NuscenesReader.np_str_to_sem(object_str).astype(np.int64)
         lidar_pts = np.asarray(
             [
                 x["num_lidar_pts"]
@@ -313,10 +313,10 @@ class NuscenesReader:
             "point_cloud": point_cloud,
             "bounding_boxes_3d_spatial": bboxes_spatial,
             "bounding_boxes_3d_transforms": tfs,
-            "bounding_boxes_cls_value": class_value,
+            "bounding_boxes_class": class_value,
             "bounding_boxes_category": object_category,
+            "bounding_boxes_class_str": object_str,
             "bounding_boxes_point_counter": total_points_per_box.astype(np.int64),
-            "bounding_boxes_category_str": object_str,
             "bounding_boxes_point_mapping": mapping,
             **camera_data,
             **radar_data,
