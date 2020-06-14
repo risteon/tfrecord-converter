@@ -315,9 +315,9 @@ class NuscenesReader:
             "bounding_boxes_3d_transforms": tfs,
             "bounding_boxes_cls_value": class_value,
             "bounding_boxes_category": object_category,
-            "bounding_boxes_points": total_points_per_box.astype(np.int64),
+            "bounding_boxes_point_counter": total_points_per_box.astype(np.int64),
             "bounding_boxes_category_str": object_str,
-            "bounding_boxes_points_mapping": mapping,
+            "bounding_boxes_point_mapping": mapping,
             **camera_data,
             **radar_data,
         }
@@ -420,7 +420,7 @@ class NuscenesObjectsReader:
             .flatten()
             .astype(np.float32),
             "bounding_box_3d": sample["bounding_boxes_3d_spatial"],
-            "point_count": sample["bounding_boxes_points"],
+            "point_count": sample["bounding_boxes_point_counter"],
             "points": (
                 sample["point_cloud"][sample["mapping"] == sample["box_id"]]
             ).flatten(),
@@ -447,7 +447,7 @@ class NuscenesObjectsReader:
             in {
                 "bounding_boxes_3d_spatial",
                 "bounding_boxes_3d_class",
-                "bounding_boxes_points",
+                "bounding_boxes_point_counter",
                 "bounding_boxes_3d_category",
                 "bounding_boxes_3d_transforms",
             }
@@ -499,7 +499,7 @@ class NuscenesObjectsReader:
                 obj=valid_objects,
                 fixed={
                     "frame_id": frame_id,
-                    "mapping": data["bounding_boxes_points_mapping"],
+                    "mapping": data["bounding_boxes_point_mapping"],
                     "point_cloud": data["point_cloud"],
                 },
             )
