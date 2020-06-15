@@ -218,8 +218,25 @@ class NuscenesReader:
         point_cloud = point_cloud.points.transpose()
 
         # create transform matrices for all boxes
-        r = np.asarray([x.rotation_matrix for x in box_list])
-        c = np.asarray([x.center for x in box_list])
+        dt = np.float32
+        if box_list:
+            r = np.asarray([x.rotation_matrix for x in box_list])
+            c = np.asarray([x.center for x in box_list])
+            center_pos = np.asarray([x.center for x in box_list], dtype=dt)
+            # NuScenes format: width, length, height. Reorder to l w h
+            box_dims_lwh = np.asarray([x.wlh for x in box_list], dtype=np.float64)[
+                :, [1, 0, 2]
+            ]
+            box_rot = np.asarray(
+                [(self.turn_quaternion * x.orientation).q for x in box_list], dtype=dt
+            )
+        else:
+            r = np.zeros(shape=[0, 3, 3], dtype=np.float64)
+            c = np.zeros(shape=[0, 3], dtype=np.float64)
+            center_pos = np.zeros(shape=[0, 3], dtype=np.float64)
+            box_dims_lwh = np.zeros(shape=[0, 3], dtype=np.float64)
+            box_rot = np.zeros(shape=[0, 4], dtype=np.float64)
+
         rc = np.concatenate((r, c[:, :, None]), axis=-1)
         tfs = np.concatenate(
             (
@@ -231,10 +248,6 @@ class NuscenesReader:
             ),
             axis=1,
         )
-        # NuScenes format: width, length, height. Reorder to l w h
-        box_dims_lwh = np.asarray([x.wlh for x in box_list], dtype=tfs.dtype)[
-            :, [1, 0, 2]
-        ]
 
         total_points_per_box, mapping = assign_point_cloud_to_bounding_boxes(
             point_cloud, bounding_boxes_tfs=tfs, bounding_boxes_dims=box_dims_lwh,
@@ -246,16 +259,12 @@ class NuscenesReader:
         y = point_cloud[:, 1:2]
         point_cloud = np.concatenate((y, -data_cam, point_cloud[:, 2:4]), axis=-1)
 
-        dt = np.float32
         # 3D BOXES IN LIDAR COORDS [(x y z) (w x y z) (l w h)]
         bboxes_spatial = np.empty(shape=(len(box_list), 10), dtype=dt)
-        center_pos = np.asarray([x.center for x in box_list], dtype=dt)
         bboxes_spatial[:, 0] = center_pos[:, 1]
         bboxes_spatial[:, 1] = -center_pos[:, 0]
         bboxes_spatial[:, 2] = center_pos[:, 2]
-        bboxes_spatial[:, 3:7] = np.asarray(
-            [(self.turn_quaternion * x.orientation).q for x in box_list], dtype=dt
-        )
+        bboxes_spatial[:, 3:7] = box_rot
         bboxes_spatial[:, 7:10] = box_dims_lwh.astype(dt)
 
         object_str = np.array([x.name for x in box_list], dtype=np.unicode)
