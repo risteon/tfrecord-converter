@@ -255,9 +255,9 @@ class NuscenesReader:
 
         # rotate point cloud 90 degrees around z-axis,
         # so that x-axis faces front of vehicle
-        data_cam = point_cloud[:, 0:1]
+        x = point_cloud[:, 0:1]
         y = point_cloud[:, 1:2]
-        point_cloud = np.concatenate((y, -data_cam, point_cloud[:, 2:4]), axis=-1)
+        point_cloud = np.concatenate((y, -x, point_cloud[:, 2:4]), axis=-1)
 
         # 3D BOXES IN LIDAR COORDS [(x y z) (w x y z) (l w h)]
         bboxes_spatial = np.empty(shape=(len(box_list), 10), dtype=dt)
