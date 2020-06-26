@@ -166,6 +166,7 @@ def tf_writer_coroutine(
     samples_to_write=None,
     file_logger_obj=None,
     progress_bar=None,
+    tfrecord_options=None,
 ):
     """
 
@@ -215,7 +216,7 @@ def tf_writer_coroutine(
                 file_logger_obj.send((f_path, dataset_name))
 
             logger.debug("Opened {}".format(str(f_path)))
-            with tf.io.TFRecordWriter(str(f_path)) as writer:
+            with tf.io.TFRecordWriter(str(f_path), options=tfrecord_options) as writer:
 
                 samples_written_in_file = 0
                 while True:  # < loop over samples in current file
@@ -397,6 +398,7 @@ def convert_from_split(
     samples_per_file=None,
     split=None,
     progress_bar: bool = True,
+    compression: bool = False,
 ):
     assert reader_func is not None
     assert output_dir is not None
@@ -445,6 +447,18 @@ def convert_from_split(
     else:
         progress_bars = {k: None for k in s_list}
 
+    options = tf.io.TFRecordOptions(
+        compression_type="GZIP" if compression else None,
+        flush_mode=None,
+        input_buffer_size=None,
+        output_buffer_size=None,
+        window_bits=None,
+        compression_level=None,
+        compression_method=None,
+        mem_level=None,
+        compression_strategy=None,
+    )
+
     writers = {
         k: tf_writer_coroutine(
             reader_func,
@@ -455,6 +469,7 @@ def convert_from_split(
             samples_to_write=split["data"][k],
             file_logger_obj=file_logger_obj,
             progress_bar=progress_bars[k],
+            tfrecord_options=options,
         )
         for i, k in enumerate(s_list)
     }
