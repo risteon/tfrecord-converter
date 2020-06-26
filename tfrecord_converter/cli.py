@@ -319,7 +319,7 @@ def process_kitti_accumulated(
 @click.option("--chunk-size", default=-1)
 @click.option("--overwrite/--no-overwrite", default=False)
 @click.option("--testset/--no-testest", default=False)
-def process_kitti_lidar_semantics(
+def process_semantic_kitti(
     kitti_raw_path,
     kitti_odometry_path,
     kitti_semantic_lidar_path,

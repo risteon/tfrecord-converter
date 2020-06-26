@@ -49,8 +49,8 @@ setup(
             "tfrecord_converter.cli:create_objects_from_hdf5",
             "tfrecord_create_objects_from_nuscenes=tfrecord_converter.cli:"
             "create_objects_from_nuscenes",
-            "tfrecord_process_kitti_lidar_semantics=tfrecord_converter.cli:"
-            "process_kitti_lidar_semantics",
+            "tfrecord_process_semantic_kitti=tfrecord_converter.cli:"
+            "process_semantic_kitti",
         ],
     },
     include_package_data=True,
