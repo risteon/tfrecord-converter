@@ -51,6 +51,8 @@ setup(
             "create_objects_from_nuscenes",
             "tfrecord_process_semantic_kitti=tfrecord_converter.cli:"
             "process_semantic_kitti",
+            "tfrecord_process_semantic_kitti_voxels=tfrecord_converter.cli:"
+            "process_semantic_kitti_voxels",
         ],
     },
     include_package_data=True,

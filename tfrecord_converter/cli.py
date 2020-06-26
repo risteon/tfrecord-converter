@@ -318,7 +318,7 @@ def process_kitti_accumulated(
 @click.option("--output", type=click.Path(exists=False), required=True)
 @click.option("--chunk-size", default=-1)
 @click.option("--overwrite/--no-overwrite", default=False)
-@click.option("--testset/--no-testest", default=False)
+@click.option("--testset/--no-testset", default=False)
 def process_semantic_kitti(
     kitti_raw_path,
     kitti_odometry_path,
@@ -357,6 +357,56 @@ def process_semantic_kitti(
         output_dir=output,
         split=reader.split,
         samples_per_file=chunk_size,
+    )
+
+
+@click.command()
+@click.argument("kitti_odometry_path", nargs=1)
+@click.argument("semantic_kitti_path", nargs=1)
+@click.argument("semantic_kitti_voxel_path", nargs=1)
+@click.option("--output", type=click.Path(exists=False), required=True)
+@click.option("--chunk-size", default=10)
+@click.option("--overwrite/--no-overwrite", default=False)
+@click.option("--compress/--no-compress", default=False)
+def process_semantic_kitti_voxels(
+    kitti_odometry_path,
+    semantic_kitti_path,
+    semantic_kitti_voxel_path,
+    output,
+    chunk_size,
+    overwrite,
+    compress: bool,
+):
+    """ Process SemanticKITTI. Use voxelized data and accumulated point clouds.
+
+    """
+    output = pathlib.Path(output)
+    make_output_directory(output, overwrite)
+
+    # save all options of this function
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    options = {i: values[i] for i in args}
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
+
+    from .semantic_kitti_reader_voxels import SemanticKittiReaderVoxels
+
+    reader = SemanticKittiReaderVoxels(
+        kitti_odometry_path, semantic_kitti_path, semantic_kitti_voxel_path
+    )
+
+    # write split for reference
+    split_file_name = str(output / "split_{}.yaml".format(reader.split["name"]))
+    write_data_as_yaml(reader.split, split_file_name)
+
+    convert_from_split(
+        reader,
+        reader_func=reader.read,
+        map_samples_to_id_func=reader.make_sample_id,
+        output_dir=output,
+        split=reader.split,
+        samples_per_file=chunk_size,
+        compression=compress,
     )
 
 
