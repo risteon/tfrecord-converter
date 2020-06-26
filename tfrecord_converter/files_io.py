@@ -17,7 +17,7 @@ def read_split(split_file):
 def write_data_as_yaml(data, output_file):
     with open(str(output_file), 'w') as o:
         yaml = YAML()
-        yaml.dump(data, o)
+        yaml.dump({k: str(v) for k, v in data.items()}, o)
 
 
 def write_flags_to_file(flags, output_file):
