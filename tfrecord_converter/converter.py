@@ -179,6 +179,7 @@ def tf_writer_coroutine(
     in the given order.
     :param file_logger_obj: If given, log all written files to this object
     :param progress_bar:
+    :param tfrecord_options:
     :return:
     """
 
@@ -312,9 +313,15 @@ def tf_writer_coroutine(
 
 
 def file_logger(
-    target_log_dir: pathlib.Path, dataset_root_dir: pathlib.Path, dataset_name="dataset"
+    target_log_dir: pathlib.Path,
+    dataset_root_dir: pathlib.Path,
+    dataset_name="dataset",
+    splits=None,
 ):
     file_dict = collections.defaultdict(list)
+    if splits is not None:
+        file_dict.update({k: [] for k in splits})
+
     try:
         while True:
             file, split_name = yield
@@ -395,8 +402,8 @@ def convert_from_split(
     reader_func: typing.Callable[[typing.Any], typing.Dict[str, typing.Any]],
     output_dir: pathlib.Path,
     map_samples_to_id_func,
+    split: dict,
     samples_per_file=None,
-    split=None,
     progress_bar: bool = True,
     compression: bool = False,
 ):
@@ -418,7 +425,7 @@ def convert_from_split(
             pass
 
     if samples_per_file is None or samples_per_file == -1:
-        samples_per_file = 10000000
+        samples_per_file = 1000000000
 
     try:
         dataset_name = split["name"]
@@ -428,7 +435,7 @@ def convert_from_split(
     dataset_files_dir = output_dir / "dataset_files"
     dataset_files_dir.mkdir(exist_ok=True)
     file_logger_obj = file_logger(
-        dataset_files_dir, output_dir, dataset_name=dataset_name
+        dataset_files_dir, output_dir, dataset_name=dataset_name, splits=s_list.keys(),
     )
     file_logger_obj.send(None)
 
