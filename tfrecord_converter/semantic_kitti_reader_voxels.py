@@ -40,6 +40,7 @@ class SemanticKittiReaderVoxels:
         kitti_odometry_root: str,
         semantic_kitti_root: str,
         semantic_kitti_voxels_root: str,
+        voxel_version: str = "voxels_v2",
     ):
         self.kitti_odometry_root = (
             pathlib.Path(kitti_odometry_root) / "dataset" / "sequences"
@@ -81,6 +82,8 @@ class SemanticKittiReaderVoxels:
                 )
             )
 
+        self.voxel_version = voxel_version
+
         self.testset_flag = False
 
         self._split = None
@@ -100,7 +103,7 @@ class SemanticKittiReaderVoxels:
 
     def _make_split(self):
         """
-        Use generated voxels_v2 output to build split.
+        Use generated <self.voxel_version> output to build split.
         """
 
         # Todo: no test split option for now
@@ -151,7 +154,7 @@ class SemanticKittiReaderVoxels:
                         )
                         continue
 
-                    voxel_dir = voxel_sequences[sequence_index] / "voxels_v2"
+                    voxel_dir = voxel_sequences[sequence_index] / self.voxel_version
                     if not voxel_dir.is_dir():
                         logger.warning(
                             "Voxels not available in sequence {:02d}. Skipping.".format(
@@ -163,7 +166,7 @@ class SemanticKittiReaderVoxels:
                     self._voxel_data_cache[sequence_index] = {
                         int(x.stem[:6]): x
                         for x in (
-                            voxel_sequences[sequence_index] / "voxels_v2"
+                            voxel_sequences[sequence_index] / self.voxel_version
                         ).iterdir()
                         if x.suffix == ".tfrecord"
                     }
@@ -232,7 +235,9 @@ class SemanticKittiReaderVoxels:
             )
             label_sem, _ = self.read_label(label_file)
 
-            voxel_base = self.semantic_kitti_voxels_root / sequence_str / "voxels_v2"
+            voxel_base = (
+                self.semantic_kitti_voxels_root / sequence_str / self.voxel_version
+            )
             voxel_data = self.read_semantic_kitti_voxel_label(
                 voxel_base / frame_str, unpack_compressed=False,
             )

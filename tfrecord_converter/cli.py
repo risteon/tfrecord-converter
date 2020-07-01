@@ -368,6 +368,7 @@ def process_semantic_kitti(
 @click.option("--chunk-size", default=10)
 @click.option("--overwrite/--no-overwrite", default=False)
 @click.option("--compress/--no-compress", default=False)
+@click.option("--voxel_version", default="voxels_v2")
 def process_semantic_kitti_voxels(
     kitti_odometry_path,
     semantic_kitti_path,
@@ -376,6 +377,7 @@ def process_semantic_kitti_voxels(
     chunk_size,
     overwrite,
     compress: bool,
+    voxel_version: str,
 ):
     """ Process SemanticKITTI. Use voxelized data and accumulated point clouds.
 
@@ -392,7 +394,10 @@ def process_semantic_kitti_voxels(
     from .semantic_kitti_reader_voxels import SemanticKittiReaderVoxels
 
     reader = SemanticKittiReaderVoxels(
-        kitti_odometry_path, semantic_kitti_path, semantic_kitti_voxel_path
+        kitti_odometry_path,
+        semantic_kitti_path,
+        semantic_kitti_voxel_path,
+        voxel_version=voxel_version,
     )
 
     # write split for reference
