@@ -340,8 +340,7 @@ class SemanticKittiReaderVoxels:
             data[k] = x
         return data
 
-    @staticmethod
-    def read_proto_file(proto_file: pathlib.Path):
+    def read_proto_file(self, proto_file: pathlib.Path):
         proto_bytes = open(proto_file, "rb").read()
         example = tf.train.Example()
         example.ParseFromString(proto_bytes)
@@ -368,11 +367,22 @@ class SemanticKittiReaderVoxels:
             )
 
         label_bytes = example.features.feature["labels"].bytes_list.value[0]
+        labels = tf.io.decode_raw(
+            label_bytes, out_type=tf.dtypes.uint16, little_endian=True
+        )
+        try:
+            labels = self._label_mapping_voxels(labels)
+        except TypeError:
+            raise RuntimeError(
+                "Invalid label entry in accumulated label data '{}'.".format(
+                    str(proto_file)
+                )
+            )
 
         return {
-            "points": points.reshape((-1,)),
+            "lidar_accumulated": points.reshape((-1,)),
             "transforms": transforms.reshape((-1,)),
             "splits": splits,
             "scan_idx_min_max": scan_idx_min_max,
-            "labels": label_bytes,
+            "labels_accumulated": labels.astype(np.uint8).tobytes(),
         }
