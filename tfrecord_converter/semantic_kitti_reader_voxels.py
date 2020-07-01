@@ -192,7 +192,15 @@ class SemanticKittiReaderVoxels:
         self._label_mapping = {
             k: v - 1 if v != 0 else 255 for k, v in self._label_mapping.items()
         }
+        self._label_mapping_voxels = self._label_mapping.copy()
+        self._label_mapping_voxels[0] = 254
+        assert all(x <= 255 for x in self._label_mapping.values())
+        assert all(x <= 255 for x in self._label_mapping_voxels.values())
+
         self._label_mapping = np.vectorize(self._label_mapping.get, otypes=[np.int64])
+        self._label_mapping_voxels = np.vectorize(
+            self._label_mapping_voxels.get, otypes=[np.int64]
+        )
 
     def make_sample_id(self, sample: typing.Tuple[int, int]):
         if not self.testset_flag:
@@ -246,13 +254,21 @@ class SemanticKittiReaderVoxels:
             label_sem = self._label_mapping(label_sem)
         except TypeError:
             raise RuntimeError(
-                "Invalid label entry in label data '{}'.".format(label_file)
+                "Invalid label entry in label data '{}'.".format(str(label_file))
             )
 
         r["point_cloud"] = point_cloud.flatten()
-        r["semantic_labels"] = label_sem
+        assert np.all(label_sem <= 255)
+        r["semantic_labels"] = label_sem.astype(np.uint8).tobytes()
+
         # voxelized scene completion data
-        r["voxel_label"] = voxel_data["label"].tobytes()
+        try:
+            voxel_label = self._label_mapping_voxels(voxel_data["label"])
+        except TypeError:
+            raise RuntimeError(
+                "Invalid label entry in voxel label data '{}'.".format(str(voxel_base))
+            )
+        r["voxel_label"] = voxel_label.astype(np.uint8).tobytes()
         r["voxel_invalid"] = voxel_data["invalid"].tobytes()
         r["voxel_occluded"] = voxel_data["occluded"].tobytes()
         r.update(**proto_data)
