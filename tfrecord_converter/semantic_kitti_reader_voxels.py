@@ -196,6 +196,7 @@ class SemanticKittiReaderVoxels:
             k: v - 1 if v != 0 else 255 for k, v in self._label_mapping.items()
         }
         self._label_mapping_voxels = self._label_mapping.copy()
+        # map unlabeled to extra entry 254
         self._label_mapping_voxels[0] = 254
         assert all(x <= 255 for x in self._label_mapping.values())
         assert all(x <= 255 for x in self._label_mapping_voxels.values())
@@ -276,6 +277,7 @@ class SemanticKittiReaderVoxels:
         r["voxel_label"] = voxel_label.astype(np.uint8).tobytes()
         r["voxel_invalid"] = voxel_data["invalid"].tobytes()
         r["voxel_occluded"] = voxel_data["occluded"].tobytes()
+        r["voxel_dynamic_occlusion"] = voxel_data["dynamic_occlusion"].tobytes()
         r.update(**proto_data)
         return r
 
@@ -316,6 +318,7 @@ class SemanticKittiReaderVoxels:
             "invalid": True,
             "label": False,
             "occluded": True,
+            "dynamic_occlusion": True,
         }
         voxel_dims = (256, 256, 32)
 
