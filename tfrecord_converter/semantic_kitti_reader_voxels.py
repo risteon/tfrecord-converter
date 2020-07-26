@@ -274,10 +274,18 @@ class SemanticKittiReaderVoxels:
             raise RuntimeError(
                 "Invalid label entry in voxel label data '{}'.".format(str(voxel_base))
             )
+
+        # #####
+        # the dynamic occlusion mask contains the actual input frame of the object
+        # -> remove input voxels from dynamic occlusion mask
+        dynamic_occlusion = np.bitwise_and(
+            voxel_data["dynamic_occlusion"], np.bitwise_not(voxel_data["bin"])
+        )
+
         r["voxel_label"] = voxel_label.astype(np.uint8).tobytes()
         r["voxel_invalid"] = voxel_data["invalid"].tobytes()
         r["voxel_occluded"] = voxel_data["occluded"].tobytes()
-        r["voxel_dynamic_occlusion"] = voxel_data["dynamic_occlusion"].tobytes()
+        r["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
         r.update(**proto_data)
         return r
 
