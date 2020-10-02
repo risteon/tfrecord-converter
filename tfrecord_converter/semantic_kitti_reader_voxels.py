@@ -108,7 +108,8 @@ class SemanticKittiReaderVoxels:
 
         # Todo: no test split option for now
         assert self.testset_flag is False
-        valid_splits = ["train", "valid"]
+        # valid_splits = ["train", "valid"]
+        valid_splits = ["valid"]
         map_split_names = {"train": "train", "valid": "val", "test": "test"}
         # read config
         with open(str(self.config_semantic), "r") as file_conf_sem:
@@ -285,6 +286,7 @@ class SemanticKittiReaderVoxels:
         r["voxel_label"] = voxel_label.astype(np.uint8).tobytes()
         r["voxel_invalid"] = voxel_data["invalid"].tobytes()
         r["voxel_occluded"] = voxel_data["occluded"].tobytes()
+        r["voxel_bin"] = voxel_data["bin"].tobytes()
         r["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
         r.update(**proto_data)
         return r
