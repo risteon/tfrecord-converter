@@ -93,10 +93,29 @@ class NuscenesReader:
     )
     turn_quaternion = Quaternion(axis=(0.0, 0.0, 1.0), radians=-np.pi / 2.0)
 
-    def __init__(self, nuscenes_root, version="v1.0-trainval", max_scenes=None):
+    def __init__(
+        self,
+        nuscenes_root,
+        version="v1.0-trainval",
+        max_scenes=None,
+        *,
+        read_radar: bool = True,
+        read_camera: bool = True,
+        read_semantics: bool = True,
+        read_bounding_boxes: bool = True
+    ):
         self.nusc = NuScenes(version=version, dataroot=nuscenes_root, verbose=False)
         self.root = pathlib.Path(nuscenes_root)
+
+        # global counter to sanity-check if we calculate the same number of points
+        # within boxes as the dataset authors
         self.ns_lidar_pts_to_calculated_diff = 0
+
+        # flags defining the data entries to return from 'read'
+        self.read_radar = read_radar
+        self.read_camera = read_camera
+        self.read_semantics = read_semantics
+        self.read_bounding_boxes = read_bounding_boxes
 
         # assert that the training targets range from 0 - (|mapping| - 1)
         assert len(set(NUSCENES_SEM_CLASSES.values())) == len(NUSCENES_SEM_CLASSES)
@@ -211,12 +230,66 @@ class NuscenesReader:
         )
 
         # POINT CLOUD [(x y z I) x P]. Intensity from 0.0 to 255.0
-        point_cloud = LidarPointCloud.from_file(data_path)
-        if point_cloud.points.dtype != np.float32:
+        point_cloud_orig = LidarPointCloud.from_file(data_path)
+        if point_cloud_orig.points.dtype != np.float32:
             raise RuntimeError("Point cloud has wrong data type.")
         # -> [P x (x y z I)]
-        point_cloud = point_cloud.points.transpose()
+        point_cloud_orig = point_cloud_orig.points.transpose()
 
+        camera_data = {}
+        radar_data = {}
+        box_data = {}
+        if self.read_bounding_boxes:
+            self._read_bounding_boxes(box_list, point_cloud_orig, sample)
+
+        # rotate point cloud 90 degrees around z-axis,
+        # so that x-axis faces front of vehicle
+        x = point_cloud_orig[:, 0:1]
+        y = point_cloud_orig[:, 1:2]
+        point_cloud = np.concatenate((y, -x, point_cloud_orig[:, 2:4]), axis=-1)
+
+        # LiDAR extrinsic calibration
+        sd_lidar = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+        calibration_lidar = self.nusc.get(
+            "calibrated_sensor", sd_lidar["calibrated_sensor_token"]
+        )
+        tf_lidar = transform_matrix(
+            calibration_lidar["translation"], Quaternion(calibration_lidar["rotation"])
+        )
+        # vehicle -> point cloud coords (turned by 90 degrees)
+        tf_vehicle_pc = np.linalg.inv(np.dot(tf_lidar, NuscenesReader.turn_matrix))
+
+        if self.read_camera:
+            # CAMERAS
+            camera_data: [{str: typing.Any}] = [
+                self._read_sensor_data_and_extrinsics(
+                    sample, cam_name, tf_vehicle_pc, self._read_camera_data
+                )
+                for cam_name in cameras
+            ]
+            camera_data = {k: v for d in camera_data for k, v in d.items()}
+
+        if self.read_radar:
+            # RADARS
+            radar_data: [{str: typing.Any}] = [
+                self._read_sensor_data_and_extrinsics(
+                    sample, radar_name, tf_vehicle_pc, self._read_radar_data
+                )
+                for radar_name in radars
+            ]
+            radar_data = {k: v for d in radar_data for k, v in d.items()}
+
+        # return feature array. Add sample ID.
+        d = {
+            "sample_id": sample_id,
+            "point_cloud": point_cloud,
+            **box_data,
+            **camera_data,
+            **radar_data,
+        }
+        return d
+
+    def _read_bounding_boxes(self, box_list, point_cloud_orig, sample):
         # create transform matrices for all boxes
         dt = np.float32
         if box_list:
@@ -250,14 +323,8 @@ class NuscenesReader:
         )
 
         total_points_per_box, mapping = assign_point_cloud_to_bounding_boxes(
-            point_cloud, bounding_boxes_tfs=tfs, bounding_boxes_dims=box_dims_lwh,
+            point_cloud_orig, bounding_boxes_tfs=tfs, bounding_boxes_dims=box_dims_lwh,
         )
-
-        # rotate point cloud 90 degrees around z-axis,
-        # so that x-axis faces front of vehicle
-        x = point_cloud[:, 0:1]
-        y = point_cloud[:, 1:2]
-        point_cloud = np.concatenate((y, -x, point_cloud[:, 2:4]), axis=-1)
 
         # 3D BOXES IN LIDAR COORDS [(x y z) (w x y z) (l w h)]
         bboxes_spatial = np.empty(shape=(len(box_list), 10), dtype=dt)
@@ -287,39 +354,7 @@ class NuscenesReader:
         diff = np.sum(np.abs(lidar_pts - total_points_per_box))
         self.ns_lidar_pts_to_calculated_diff += diff
 
-        # LiDAR extrinsic calibration
-        sd_lidar = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-        calibration_lidar = self.nusc.get(
-            "calibrated_sensor", sd_lidar["calibrated_sensor_token"]
-        )
-        tf_lidar = transform_matrix(
-            calibration_lidar["translation"], Quaternion(calibration_lidar["rotation"])
-        )
-        # vehicle -> point cloud coords (turned by 90 degrees)
-        tf_vehicle_pc = np.linalg.inv(np.dot(tf_lidar, NuscenesReader.turn_matrix))
-
-        # CAMERAS
-        camera_data: [{str: typing.Any}] = [
-            self._read_sensor_data_and_extrinsics(
-                sample, cam_name, tf_vehicle_pc, self._read_camera_data
-            )
-            for cam_name in cameras
-        ]
-        camera_data = {k: v for d in camera_data for k, v in d.items()}
-
-        # RADARS
-        radar_data: [{str: typing.Any}] = [
-            self._read_sensor_data_and_extrinsics(
-                sample, radar_name, tf_vehicle_pc, self._read_radar_data
-            )
-            for radar_name in radars
-        ]
-        radar_data = {k: v for d in radar_data for k, v in d.items()}
-
-        # return feature array. Add sample ID.
-        d = {
-            "sample_id": sample_id,
-            "point_cloud": point_cloud,
+        return {
             "bounding_boxes_3d_spatial": bboxes_spatial,
             "bounding_boxes_3d_transforms": tfs,
             "bounding_boxes_class": class_value,
@@ -327,10 +362,7 @@ class NuscenesReader:
             "bounding_boxes_class_str": object_str,
             "bounding_boxes_point_counter": total_points_per_box.astype(np.int64),
             "bounding_boxes_point_mapping": mapping,
-            **camera_data,
-            **radar_data,
         }
-        return d
 
     @staticmethod
     def _read_sensor_data_and_extrinsics(
