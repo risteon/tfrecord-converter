@@ -16,7 +16,6 @@ from .cli_helper import (
     process_split,
 )
 from .files_io import read_split, write_data_as_yaml
-from .hdf5_reader import HDF5SubgroupIterable, HDF5Objects
 from .kitti_semantics_reader import KittiSemanticsIterator
 from .kitti_raw_reader import KittiRawReader
 from .reader_functions import reader_funcs
@@ -35,6 +34,8 @@ from .converter import convert_from_split, convert_single_set
 def process_hdf5(
     files, output, reader, split, chunk_size, shuffle, overwrite, allow_missing
 ):
+    from .hdf5_reader import HDF5SubgroupIterable
+
     output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 
@@ -197,6 +198,8 @@ def create_objects_from_hdf5(files, output, chunk_size, split, overwrite, datase
     Splits data according to given split and creates tfrecords for each object class
     separately. Sample IDs will be: {sample}_#{obj_id:03d}_{category}
     """
+    from .hdf5_reader import HDF5Objects
+
     output = pathlib.Path(output)
     make_output_directory(output, overwrite)
 

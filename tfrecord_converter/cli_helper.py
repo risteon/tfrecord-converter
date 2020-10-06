@@ -4,7 +4,6 @@
 import os
 import sys
 import collections
-import h5py
 import pathlib
 import random
 
@@ -64,6 +63,8 @@ def get_data_files_from_user_argument(files):
     if it is a .hdf5 file or a list of .hdf5 files
 
     """
+    import h5py
+
     if not isinstance(files, collections.Iterable) or isinstance(files, str):
         files = tuple(files)
 
