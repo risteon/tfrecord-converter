@@ -123,8 +123,21 @@ def process_kitti_semantics(
 @click.option("--overwrite/--no-overwrite", default=False)
 @click.option("--max-number-scenes", default=-1)
 @click.option("--ns-version", default="v1.0-trainval")
+@click.option("--camera/--no-camera", default=True)
+@click.option("--radar/--no-radar", default=True)
+@click.option("--boxes/--no-boxes", default=True)
+@click.option("--semantics/--no-semantics", default=True)
 def process_nuscenes(
-    nuscenes_root, output_folder, chunk_size, overwrite, max_number_scenes, ns_version
+    nuscenes_root,
+    output_folder,
+    chunk_size,
+    overwrite,
+    max_number_scenes,
+    ns_version,
+    camera: bool,
+    radar: bool,
+    boxes: bool,
+    semantics: bool,
 ):
     output_folder = pathlib.Path(output_folder)
     make_output_directory(output_folder, overwrite)
@@ -135,6 +148,10 @@ def process_nuscenes(
         nuscenes_root=nuscenes_root,
         max_scenes=max_number_scenes if max_number_scenes > -1 else None,
         version=ns_version,
+        read_radar=radar,
+        read_camera=camera,
+        read_bounding_boxes=boxes,
+        read_semantics=semantics,
     )
 
     # write split for reference

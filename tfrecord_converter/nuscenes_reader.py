@@ -117,6 +117,9 @@ class NuscenesReader:
         self.read_semantics = read_semantics
         self.read_bounding_boxes = read_bounding_boxes
 
+        if self.read_semantics and not hasattr(self.nusc, "lidarseg"):
+            raise RuntimeError("Error: nuScenes-lidarseg not installed!")
+
         # assert that the training targets range from 0 - (|mapping| - 1)
         assert len(set(NUSCENES_SEM_CLASSES.values())) == len(NUSCENES_SEM_CLASSES)
         assert all(
@@ -221,12 +224,13 @@ class NuscenesReader:
 
         sample_id = self.make_sample_id(sample)
         sample, sample_index = sample
+        sample_data_token: str = sample["data"]["LIDAR_TOP"]
 
-        lidar_sample_data = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+        lidar_sample_data = self.nusc.get("sample_data", sample_data_token)
         assert lidar_sample_data["is_key_frame"]
 
         data_path, box_list, cam_intrinsic = self.nusc.get_sample_data(
-            sample["data"]["LIDAR_TOP"]
+            sample_data_token
         )
 
         # POINT CLOUD [(x y z I) x P]. Intensity from 0.0 to 255.0
@@ -239,8 +243,13 @@ class NuscenesReader:
         camera_data = {}
         radar_data = {}
         box_data = {}
+        lidarseg_data = {}
+
+        if self.read_semantics:
+            lidarseg_data = self._read_lidarseg_data(sample_data_token, point_cloud_orig)
+
         if self.read_bounding_boxes:
-            self._read_bounding_boxes(box_list, point_cloud_orig, sample)
+            box_data = self._read_bounding_boxes(box_list, point_cloud_orig, sample)
 
         # rotate point cloud 90 degrees around z-axis,
         # so that x-axis faces front of vehicle
@@ -249,9 +258,8 @@ class NuscenesReader:
         point_cloud = np.concatenate((y, -x, point_cloud_orig[:, 2:4]), axis=-1)
 
         # LiDAR extrinsic calibration
-        sd_lidar = self.nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
         calibration_lidar = self.nusc.get(
-            "calibrated_sensor", sd_lidar["calibrated_sensor_token"]
+            "calibrated_sensor", lidar_sample_data["calibrated_sensor_token"]
         )
         tf_lidar = transform_matrix(
             calibration_lidar["translation"], Quaternion(calibration_lidar["rotation"])
@@ -279,6 +287,9 @@ class NuscenesReader:
             ]
             radar_data = {k: v for d in radar_data for k, v in d.items()}
 
+        assert box_data.keys().isdisjoint(camera_data.keys())
+        assert box_data.keys().isdisjoint(radar_data.keys())
+        assert box_data.keys().isdisjoint(lidarseg_data.keys())
         # return feature array. Add sample ID.
         d = {
             "sample_id": sample_id,
@@ -286,8 +297,26 @@ class NuscenesReader:
             **box_data,
             **camera_data,
             **radar_data,
+            **lidarseg_data,
         }
         return d
+
+    def _read_lidarseg_data(self, sample_data_token: str, point_cloud_orig: np.ndarray):
+        # self.nusc.lidarseg_idx2name_mapping
+
+        lidarseg_labels_filename = (
+            pathlib.Path(self.nusc.dataroot)
+            / self.nusc.get("lidarseg", sample_data_token)["filename"]
+        )
+        # Load labels from .bin file.
+        points_label = np.fromfile(
+            str(lidarseg_labels_filename), dtype=np.uint8
+        )  # [num_points]
+
+        if points_label.shape[0] != point_cloud_orig.shape[0]:
+            raise ValueError("Semantic labels do not match point cloud.")
+
+        return {"semantic_labels": tf.io.serialize_tensor(points_label)}
 
     def _read_bounding_boxes(self, box_list, point_cloud_orig, sample):
         # create transform matrices for all boxes
