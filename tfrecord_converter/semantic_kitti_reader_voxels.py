@@ -108,8 +108,7 @@ class SemanticKittiReaderVoxels:
 
         # Todo: no test split option for now
         assert self.testset_flag is False
-        # valid_splits = ["train", "valid"]
-        valid_splits = ["valid"]
+        valid_splits = ["train", "valid"]
         map_split_names = {"train": "train", "valid": "val", "test": "test"}
         # read config
         with open(str(self.config_semantic), "r") as file_conf_sem:
