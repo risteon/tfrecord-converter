@@ -338,10 +338,13 @@ class SemanticKittiReaderVoxels:
         }
         self._label_mapping_voxels = self._label_mapping.copy()
         # map unlabeled to extra entry 254 when voxelizing
-        # Todo(risteon)
+        # Todo(risteon): Is this better?
+        # -> Map noise to 254, this will get removed when parsing
+        # -> Map unlabed to 255 to keep for geometry training
         unlabeled_index_nuscenes = 32
         self._label_mapping[unlabeled_index_nuscenes] = 255
-        self._label_mapping_voxels[unlabeled_index_nuscenes] = 254
+        self._label_mapping_voxels[0] = 254
+        self._label_mapping_voxels[unlabeled_index_nuscenes] = 255
 
         assert all(x <= 255 for x in self._label_mapping.values())
         assert all(x <= 255 for x in self._label_mapping_voxels.values())
