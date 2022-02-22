@@ -33,15 +33,18 @@ class SemanticKittiReaderVoxels:
 
     """
 
-    sample_id_template = "semantic_kitti_{seq:02d}_{frame:04d}"
-
     def __init__(
         self,
         kitti_odometry_root: str,
         semantic_kitti_root: str,
         semantic_kitti_voxels_root: str,
         voxel_version: str = "voxels_v2",
+        input_format="kitti",
     ):
+
+        if input_format not in ["kitti", "nuscenes"]:
+            raise ValueError(f"Unknown input format '{input_format}.")
+
         self.kitti_odometry_root = (
             pathlib.Path(kitti_odometry_root) / "dataset" / "sequences"
         )
@@ -52,9 +55,18 @@ class SemanticKittiReaderVoxels:
             pathlib.Path(semantic_kitti_voxels_root) / "dataset" / "sequences"
         )
 
-        self.config_semantic: pathlib.Path = pathlib.Path(
-            __file__
-        ).parent.parent / "config" / "semantic-kitti.yaml"
+        if input_format == "kitti":
+            self.config_semantic: pathlib.Path = (
+                pathlib.Path(__file__).parent.parent / "config" / "semantic-kitti.yaml"
+            )
+        elif input_format == "nuscenes":
+            self.config_semantic: pathlib.Path = (
+                pathlib.Path(__file__).parent.parent
+                / "config"
+                / "nuscenes-lidarseg.yaml"
+            )
+        else:
+            assert False
 
         if not self.kitti_odometry_root.is_dir():
             raise RuntimeError(
@@ -92,7 +104,13 @@ class SemanticKittiReaderVoxels:
         self._label_mapping = None
         self._voxel_data_cache = {}
 
-        self._make_split()
+        self._input_format = input_format
+        if input_format == "kitti":
+            self._make_split_kitti()
+        elif input_format == "nuscenes":
+            self._make_split_nuscenes()
+        else:
+            assert False
 
     def __iter__(self):
         return self._samples_to_generate.__iter__()
@@ -101,10 +119,19 @@ class SemanticKittiReaderVoxels:
     def split(self):
         return self._split
 
-    def _make_split(self):
+    def _make_split_kitti(self):
         """
         Use generated <self.voxel_version> output to build split.
         """
+
+        assert self._input_format == "kitti"
+
+        self.sample_id_template = "semantic_kitti_{seq:02d}_{frame:04d}"
+
+        self._seq_format = lambda x: "{:02d}".format(x)
+        self._frame_format = lambda x: "{:06d}".format(x)
+        self._label_format = lambda x: "{:06d}".format(x)
+        self._voxel_format = lambda x: "{:06d}".format(x)
 
         # Todo: no test split option for now
         assert self.testset_flag is False
@@ -206,6 +233,124 @@ class SemanticKittiReaderVoxels:
             self._label_mapping_voxels.get, otypes=[np.int64]
         )
 
+    def _make_split_nuscenes(self):
+        """
+        Use generated <self.voxel_version> output to build split.
+        """
+
+        assert self._input_format == "nuscenes"
+
+        self.sample_id_template = "nuscenes_lidarseg_{seq:04d}_{frame:04d}"
+
+        self._seq_format = lambda x: "{:04d}".format(x)
+        self._frame_format = lambda x: "{:05d}".format(x)
+        self._label_format = lambda x: "{:05d}".format(x)
+        self._voxel_format = lambda x: "{:06d}".format(x)
+
+        # Todo: no test split option for now
+        assert self.testset_flag is False
+        valid_splits = ["train", "valid"]
+        map_split_names = {"train": "train", "valid": "val", "test": "test"}
+        # read config
+        with open(str(self.config_semantic), "r") as file_conf_sem:
+            yaml = YAML()
+            data = yaml.load(file_conf_sem)
+            self._config_data = {k: dict(v) for k, v in data.items()}
+
+        data_splits = {
+            map_split_names[k]: v
+            for k, v in self._config_data["split"].items()
+            if k in valid_splits
+        }
+        self._split = {
+            "name": "nuscenes_voxels_{}".format(
+                "default" if not self.testset_flag else "test"
+            ),
+            "data": {k: [] for k in data_splits.keys()},
+        }
+
+        self._samples_to_generate = []
+
+        def parse_sequence_folder_name(x):
+            try:
+                return int(x)
+            except ValueError:
+                return -1
+
+        voxel_sequences = {
+            parse_sequence_folder_name(x.name): x
+            for x in self.semantic_kitti_voxels_root.iterdir()
+        }
+
+        for split_name, sequences in data_splits.items():
+            split_data = self._split["data"][split_name]
+            for sequence_index in sequences:
+                if not self.testset_flag:
+
+                    if sequence_index not in voxel_sequences:
+                        logger.warning(
+                            "Sequence "
+                            + self._seq_format(sequence_index)
+                            + " not available. Skipping."
+                        )
+                        continue
+
+                    voxel_dir = voxel_sequences[sequence_index] / self.voxel_version
+                    if not voxel_dir.is_dir():
+                        logger.warning(
+                            "Voxels not available in sequence "
+                            + self._seq_format(sequence_index)
+                            + ". Skipping."
+                        )
+                        continue
+
+                    self._voxel_data_cache[sequence_index] = {
+                        int(x.stem[:6]): x
+                        for x in (
+                            voxel_sequences[sequence_index] / self.voxel_version
+                        ).iterdir()
+                        if x.suffix == ".tfrecord"
+                    }
+
+                    split_data.extend(
+                        [
+                            self.sample_id_template.format(seq=sequence_index, frame=x)
+                            for x in sorted(
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
+                        ]
+                    )
+                    self._samples_to_generate.extend(
+                        [
+                            (sequence_index, x)
+                            for x in sorted(
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
+                        ]
+                    )
+                else:
+                    raise NotImplementedError()
+
+        self._label_mapping: dict = self._config_data["learning_map"]
+        # make 255 the 'unlabeled' label and shift all others down (-1) accordingly
+        self._label_mapping = {
+            k: v - 1 if v != 0 else 255 for k, v in self._label_mapping.items()
+        }
+        self._label_mapping_voxels = self._label_mapping.copy()
+        # map unlabeled to extra entry 254 when voxelizing
+        # Todo(risteon)
+        unlabeled_index_nuscenes = 32
+        self._label_mapping[unlabeled_index_nuscenes] = 255
+        self._label_mapping_voxels[unlabeled_index_nuscenes] = 254
+
+        assert all(x <= 255 for x in self._label_mapping.values())
+        assert all(x <= 255 for x in self._label_mapping_voxels.values())
+
+        self._label_mapping = np.vectorize(self._label_mapping.get, otypes=[np.int64])
+        self._label_mapping_voxels = np.vectorize(
+            self._label_mapping_voxels.get, otypes=[np.int64]
+        )
+
     def make_sample_id(self, sample: typing.Tuple[int, int]):
         if not self.testset_flag:
             return self.sample_id_template.format(seq=sample[0], frame=sample[1])
@@ -218,8 +363,10 @@ class SemanticKittiReaderVoxels:
 
         if not self.testset_flag:
 
-            sequence_str = "{:02d}".format(sample[0])
-            frame_str = "{:06d}".format(sample[1])
+            sequence_str = self._seq_format(sample[0])
+            frame_str = self._frame_format(sample[1])
+            label_str = self._label_format(sample[1])
+            voxel_str = self._voxel_format(sample[1])
 
             point_cloud_file = (
                 self.kitti_odometry_root
@@ -232,7 +379,7 @@ class SemanticKittiReaderVoxels:
                 self.semantic_kitti_root
                 / sequence_str
                 / "labels"
-                / "{}.label".format(frame_str)
+                / "{}.label".format(label_str)
             )
             label_sem, _ = self.read_label(label_file)
 
@@ -240,10 +387,11 @@ class SemanticKittiReaderVoxels:
                 self.semantic_kitti_voxels_root / sequence_str / self.voxel_version
             )
             voxel_data = self.read_semantic_kitti_voxel_label(
-                voxel_base / frame_str, unpack_compressed=False,
+                voxel_base / voxel_str,
+                unpack_compressed=False,
             )
 
-            proto_file = voxel_base / (frame_str + "_points.tfrecord")
+            proto_file = voxel_base / (voxel_str + "_points.tfrecord")
             proto_data = self.read_proto_file(proto_file)
 
         else:
@@ -319,7 +467,8 @@ class SemanticKittiReaderVoxels:
 
     @staticmethod
     def read_semantic_kitti_voxel_label(
-        semantic_kitti_sample: pathlib.Path, unpack_compressed: bool = False,
+        semantic_kitti_sample: pathlib.Path,
+        unpack_compressed: bool = False,
     ) -> {str: np.ndarray}:
         # compressed/uncompressed
         d = {
