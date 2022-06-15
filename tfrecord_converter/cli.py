@@ -436,6 +436,64 @@ def process_semantic_kitti_voxels(
 
 
 @click.command()
+@click.argument("kitti_odometry_path", nargs=1)
+@click.argument("semantic_kitti_path", nargs=1)
+@click.argument("semantic_kitti_voxel_path", nargs=1)
+@click.option("--output", type=click.Path(exists=False), required=True)
+@click.option("--chunk-size", default=10)
+@click.option("--overwrite/--no-overwrite", default=False)
+@click.option("--compress/--no-compress", default=True)
+def process_semantic_kitti_voxels_v2(
+        kitti_odometry_path,
+        semantic_kitti_path,
+        semantic_kitti_voxel_path,
+        output,
+        chunk_size,
+        overwrite,
+        compress: bool,
+        voxel_version: str,
+):
+    """ Process SemanticKITTI (input data in Semantic KITTI format)
+
+    This converter assumes voxelizer "v2" input:
+    * free space / occupancy as uint8 values
+    * no voxelized labels
+    * dynamic occpancy map as before
+    """
+    output = pathlib.Path(output)
+    make_output_directory(output, overwrite)
+
+    # save all options of this function
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    options = {i: values[i] for i in args}
+    write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
+
+    from .semantic_kitti_reader_voxels import SemanticKittiReaderVoxels
+
+    reader = SemanticKittiReaderVoxels(
+        kitti_odometry_path,
+        semantic_kitti_path,
+        semantic_kitti_voxel_path,
+        voxel_version=voxel_version,
+    )
+
+    # write split for reference
+    split_file_name = str(output / "split_{}.yaml".format(reader.split["name"]))
+    write_data_as_yaml(reader.split, split_file_name)
+
+    convert_from_split(
+        reader,
+        reader_func=reader.read,
+        map_samples_to_id_func=reader.make_sample_id,
+        output_dir=output,
+        split=reader.split,
+        samples_per_file=chunk_size,
+        compression=compress,
+    )
+
+
+@click.command()
 @click.argument("nuscenes_converted_path", nargs=1)
 @click.argument("semantic_kitti_voxel_path", nargs=1)
 @click.option("--output", type=click.Path(exists=False), required=True)

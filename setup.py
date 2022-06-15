@@ -53,6 +53,8 @@ setup(
             "process_semantic_kitti",
             "tfrecord_process_semantic_kitti_voxels=tfrecord_converter.cli:"
             "process_semantic_kitti_voxels",
+            "tfrecord_process_semantic_kitti_voxels_v2=tfrecord_converter.cli:"
+            "process_semantic_kitti_voxels_v2",
             "tfrecord_process_nuscenes_voxels=tfrecord_converter.cli:"
             "process_nuscenes_voxels",
         ],
