@@ -149,9 +149,10 @@ def make_output_directory(output: pathlib.Path, overwrite: bool = False):
 
             if overwrite:
                 print(msg)
-                continue_to_delete = query_user_yes_no(
-                    "Continue to write into '{}'?".format(str(output)), default="no"
-                )
+                # continue_to_delete = query_user_yes_no(
+                #     "Continue to write into '{}'?".format(str(output)), default="no"
+                # )
+                continue_to_delete = True
                 if not continue_to_delete:
                     raise RuntimeError("User abort.")
 

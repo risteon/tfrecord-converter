@@ -451,7 +451,6 @@ def process_semantic_kitti_voxels_v2(
         chunk_size,
         overwrite,
         compress: bool,
-        voxel_version: str,
 ):
     """ Process SemanticKITTI (input data in Semantic KITTI format)
 
@@ -469,13 +468,12 @@ def process_semantic_kitti_voxels_v2(
     options = {i: values[i] for i in args}
     write_data_as_yaml(options, str(output / "tf_dataset_flags.txt"))
 
-    from .semantic_kitti_reader_voxels import SemanticKittiReaderVoxels
+    from .semantic_kitti_reader_voxels_v2 import SemanticKittiReaderVoxelsV2
 
-    reader = SemanticKittiReaderVoxels(
+    reader = SemanticKittiReaderVoxelsV2(
         kitti_odometry_path,
         semantic_kitti_path,
         semantic_kitti_voxel_path,
-        voxel_version=voxel_version,
     )
 
     # write split for reference
