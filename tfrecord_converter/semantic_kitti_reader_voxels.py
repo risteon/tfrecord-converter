@@ -469,6 +469,17 @@ class SemanticKittiReaderVoxels:
         return uncompressed
 
     @staticmethod
+    def packbits_kitti(uncompressed: np.ndarray):
+        """ Semantic KITTI uses 'little' bitorder.
+        Array entries [A, B, C, D, ...] are writtin in this order into bits:
+        0bABCD...
+
+        :param uncompressed:
+        :return:
+        """
+        return np.packbits(uncompressed, bitorder='little')
+
+    @staticmethod
     def read_semantic_kitti_voxel_label(
         semantic_kitti_sample: pathlib.Path,
         unpack_compressed: bool = False,

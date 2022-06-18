@@ -443,6 +443,7 @@ def process_semantic_kitti_voxels(
 @click.option("--chunk-size", default=10)
 @click.option("--overwrite/--no-overwrite", default=False)
 @click.option("--compress/--no-compress", default=True)
+@click.option("--dataset", default="nuscenes")
 def process_semantic_kitti_voxels_v2(
         kitti_odometry_path,
         semantic_kitti_path,
@@ -451,6 +452,7 @@ def process_semantic_kitti_voxels_v2(
         chunk_size,
         overwrite,
         compress: bool,
+        dataset: str,
 ):
     """ Process SemanticKITTI (input data in Semantic KITTI format)
 
@@ -474,6 +476,7 @@ def process_semantic_kitti_voxels_v2(
         kitti_odometry_path,
         semantic_kitti_path,
         semantic_kitti_voxel_path,
+        input_data_version=dataset,
     )
 
     # write split for reference
