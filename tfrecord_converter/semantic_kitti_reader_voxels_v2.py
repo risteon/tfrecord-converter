@@ -39,11 +39,11 @@ class SemanticKittiReaderVoxelsV2:
     """
 
     def __init__(
-            self,
-            kitti_odometry_sequences: str,
-            semantic_kitti_sequences: str,
-            semantic_kitti_voxels_sequences: str,
-            input_data_version: str = "nuscenes",
+        self,
+        kitti_odometry_sequences: str,
+        semantic_kitti_sequences: str,
+        semantic_kitti_voxels_sequences: str,
+        input_data_version: str = "nuscenes",
     ):
         if input_data_version not in ["kitti", "nuscenes"]:
             raise ValueError(f"Unknown input format '{input_data_version}.")
@@ -52,18 +52,18 @@ class SemanticKittiReaderVoxelsV2:
         self.semantic_kitti_sequences = pathlib.Path(semantic_kitti_sequences)
 
         self.semantic_kitti_voxels_sequences = pathlib.Path(
-            semantic_kitti_voxels_sequences)
+            semantic_kitti_voxels_sequences
+        )
 
         if input_data_version == "kitti":
             self.config_semantic: pathlib.Path = (
-                    pathlib.Path(
-                        __file__).parent.parent / "config" / "semantic-kitti.yaml"
+                pathlib.Path(__file__).parent.parent / "config" / "semantic-kitti.yaml"
             )
         elif input_data_version == "nuscenes":
             self.config_semantic: pathlib.Path = (
-                    pathlib.Path(__file__).parent.parent
-                    / "config"
-                    / "nuscenes-lidarseg.yaml"
+                pathlib.Path(__file__).parent.parent
+                / "config"
+                / "nuscenes-lidarseg.yaml"
             )
         else:
             assert False
@@ -125,11 +125,13 @@ class SemanticKittiReaderVoxelsV2:
             self._frame_format = lambda x: "{:06d}".format(x)
         elif split_version == "nuscenes":
             self._seq_format = lambda x: "{:04d}".format(x)
+            # TODO(risteon) Fix input. 6 digits would be more consistent
             self._label_format = lambda x: "{:05d}".format(x)
             self._frame_format = lambda x: "{:05d}".format(x)
         else:
             assert False
 
+        # format for files from the voxelizer
         self._voxel_format = lambda x: "{:06d}".format(x)
 
         # Todo: no test split option for now
@@ -159,8 +161,10 @@ class SemanticKittiReaderVoxelsV2:
 
             # Translate nuscenes scene names 'scene-XXXX' from split into these integers
             data_splits = {"train": nuscenes_split_train, "val": nuscenes_split_val}
-            data_splits = {k: sorted([parse_nuscenes_scene_name(x) for x in v]) for k, v
-                           in data_splits.items()}
+            data_splits = {
+                k: sorted([parse_nuscenes_scene_name(x) for x in v])
+                for k, v in data_splits.items()
+            }
         else:
             raise NotImplementedError(f"Unknown split {split_version}.")
 
@@ -209,9 +213,7 @@ class SemanticKittiReaderVoxelsV2:
 
                     self._voxel_data_cache[sequence_index] = {
                         int(x.stem[:6]): x
-                        for x in (
-                            voxel_dir
-                        ).iterdir()
+                        for x in (voxel_dir).iterdir()
                         if x.suffix == ".tfrecord"
                     }
 
@@ -219,16 +221,16 @@ class SemanticKittiReaderVoxelsV2:
                         [
                             self.sample_id_template.format(seq=sequence_index, frame=x)
                             for x in sorted(
-                            list(self._voxel_data_cache[sequence_index].keys())
-                        )
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
                         ]
                     )
                     self._samples_to_generate.extend(
                         [
                             (sequence_index, x)
                             for x in sorted(
-                            list(self._voxel_data_cache[sequence_index].keys())
-                        )
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
                         ]
                     )
                 else:
@@ -270,61 +272,64 @@ class SemanticKittiReaderVoxelsV2:
         if not self.testset_flag:
 
             sequence_str = self._seq_format(sample[0])
-            frame_str = self._frame_format(sample[1])
-            label_str = self._label_format(sample[1])
+            # frame_str = self._frame_format(sample[1])
+            # label_str = self._label_format(sample[1])
             voxel_str = self._voxel_format(sample[1])
 
-            point_cloud_file = (
-                    self.kitti_odometry_sequences
-                    / sequence_str
-                    / "velodyne"
-                    / "{}.bin".format(frame_str)
-            )
+            # point_cloud_file = (
+            #     self.kitti_odometry_sequences
+            #     / sequence_str
+            #     / "velodyne"
+            #     / "{}.bin".format(frame_str)
+            # )
+            #
+            # # per-point labels. Might not exist for every frame.
+            # label_file = (
+            #     self.semantic_kitti_sequences
+            #     / sequence_str
+            #     / "labels"
+            #     / "{}.label".format(label_str)
+            # )
+            # try:
+            #     label_sem, _ = self.read_label(label_file)
+            # except FileNotFoundError:
+            #     label_sem = None
 
-            # per-point labels. Might not exist for every frame.
-            label_file = (
-                    self.semantic_kitti_sequences
-                    / sequence_str
-                    / "labels"
-                    / "{}.label".format(label_str)
-            )
-            try:
-                label_sem, _ = self.read_label(label_file)
-            except FileNotFoundError:
-                label_sem = None
-
-            voxel_base = (
-                    self.semantic_kitti_voxels_sequences / sequence_str
-            )
+            voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
             voxel_data = self.read_semantic_kitti_voxel_data(
                 voxel_base / voxel_str,
                 unpack_compressed=False,
             )
 
-            proto_file = voxel_base / (voxel_str + "_points.tfrecord")
-            proto_data = self.read_proto_file(proto_file)
+            proto_file_accumulated = voxel_base / (voxel_str + "_points.tfrecord")
+            proto_data_voxel = self.read_proto_file_voxel_data(proto_file_accumulated)
+
+            proto_file_point_input = voxel_base / (voxel_str + "_input.tfrecord")
+            proto_data_input = self.read_proto_file_input_data(proto_file_point_input)
 
         else:
             raise NotImplementedError()
 
-        point_cloud = self.read_pointcloud(point_cloud_file)
-        r["point_cloud"] = point_cloud.flatten()
-
-        if label_sem is not None:
-            if label_sem.shape[0] != point_cloud.shape[0]:
-                raise RuntimeError(
-                    "Length of labels and point cloud does not match"
-                    "({} and {})".format(str(point_cloud_file), str(label_file))
-                )
-            try:
-                label_sem = self._label_mapping(label_sem)
-            except TypeError:
-                raise RuntimeError(
-                    "Invalid label entry in label data '{}'.".format(str(label_file))
-                )
-
-            assert np.all(label_sem <= 255)
-            r["semantic_labels"] = label_sem.astype(np.uint8).tobytes()
+        # TODO(risteon): Code for single frame point cloud and sem labels for future
+        #                reference. Maybe include sem labels again sometime.
+        # point_cloud = self.read_pointcloud(point_cloud_file)
+        # r["point_cloud"] = point_cloud.flatten()
+        #
+        # if label_sem is not None:
+        #     if label_sem.shape[0] != point_cloud.shape[0]:
+        #         raise RuntimeError(
+        #             "Length of labels and point cloud does not match"
+        #             "({} and {})".format(str(point_cloud_file), str(label_file))
+        #         )
+        #     try:
+        #         label_sem = self._label_mapping(label_sem)
+        #     except TypeError:
+        #         raise RuntimeError(
+        #             "Invalid label entry in label data '{}'.".format(str(label_file))
+        #         )
+        #
+        #     assert np.all(label_sem <= 255)
+        #     r["semantic_labels"] = label_sem.astype(np.uint8).tobytes()
 
         # #####
         # the dynamic occlusion mask contains the actual input frame of the object
@@ -335,14 +340,15 @@ class SemanticKittiReaderVoxelsV2:
         # ## This map only filters out free space points for later frames.
         dynamic_occlusion = np.bitwise_and(
             voxel_data["dynamic_occlusion"],
-            np.bitwise_not(self.packbits_kitti(voxel_data["points"] > 0))
+            np.bitwise_not(self.packbits_kitti(voxel_data["points"] > 0)),
         )
 
         # We actually do not need the voxelized accumulated point cloud.
         # r["voxel_points"] = voxel_data["points"].tobytes()
         r["voxel_free"] = voxel_data["free"].tobytes()
         r["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
-        r.update(**proto_data)
+        r.update(**proto_data_voxel)
+        r.update(**proto_data_input)
         return r
 
     @staticmethod
@@ -374,19 +380,19 @@ class SemanticKittiReaderVoxelsV2:
 
     @staticmethod
     def packbits_kitti(uncompressed: np.ndarray):
-        """ Semantic KITTI uses 'little' bitorder.
+        """Semantic KITTI uses 'little' bitorder.
         Array entries [A, B, C, D, ...] are writtin in this order into bits:
         0bABCD...
 
         :param uncompressed:
         :return:
         """
-        return np.packbits(uncompressed, bitorder='little')
+        return np.packbits(uncompressed, bitorder="little")
 
     @staticmethod
     def read_semantic_kitti_voxel_data(
-            semantic_kitti_sample: pathlib.Path,
-            unpack_compressed: bool = False,
+        semantic_kitti_sample: pathlib.Path,
+        unpack_compressed: bool = False,
     ) -> {str: np.ndarray}:
         # compressed/uncompressed (compressed means 8 booleans are packed into one byte)
         d = {
@@ -398,7 +404,7 @@ class SemanticKittiReaderVoxelsV2:
         data = {}
         for k, compressed in d.items():
             filepath = semantic_kitti_sample.parent / (
-                    semantic_kitti_sample.stem + "." + k
+                semantic_kitti_sample.stem + "." + k
             )
             if not filepath.is_file():
                 raise FileNotFoundError("Cannot find voxel label file '{}'.".format(k))
@@ -414,7 +420,7 @@ class SemanticKittiReaderVoxelsV2:
             data[k] = x
         return data
 
-    def read_proto_file(self, proto_file: pathlib.Path):
+    def read_proto_file_voxel_data(self, proto_file: pathlib.Path):
         proto_bytes = open(proto_file, "rb").read()
         example = tf.train.Example()
         example.ParseFromString(proto_bytes)
@@ -459,4 +465,35 @@ class SemanticKittiReaderVoxelsV2:
             "splits": splits,
             "scan_idx_min_max": scan_idx_min_max,
             "labels_accumulated": labels.astype(np.uint8).tobytes(),
+        }
+
+    def read_proto_file_input_data(self, proto_file: pathlib.Path):
+        """The expected keys in the input proto file are:
+        * lidar: Input points with remission. 4 floats per point
+        * splits: Ints to split point list into frames
+        * transforms: tf between reference frame and point. Similar to voxelized tfs
+
+        :param proto_file:
+        :return:
+        """
+        proto_bytes = open(proto_file, "rb").read()
+        example = tf.train.Example()
+        example.ParseFromString(proto_bytes)
+
+        points = np.array(
+            example.features.feature["lidar"].float_list.value, np.float32
+        ).reshape((-1, 4))
+        transforms = np.array(
+            example.features.feature["transforms"].float_list.value, np.float32
+        ).reshape((-1, 4, 4))
+        splits = np.array(example.features.feature["splits"].int64_list.value, np.int64)
+        if splits[-1] != points.shape[0] or np.any(np.ediff1d(splits) < 0):
+            raise ValueError(
+                "Corrupted data in {}: Invalid splits.".format(str(proto_file))
+            )
+
+        return {
+            "point_cloud": points.reshape((-1,)),
+            "point_cloud_transforms": transforms.reshape((-1,)),
+            "point_cloud_splits": splits,
         }
