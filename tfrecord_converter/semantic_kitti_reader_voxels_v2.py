@@ -188,11 +188,25 @@ class SemanticKittiReaderVoxelsV2:
             parse_sequence_folder_name(x.name): x
             for x in self.semantic_kitti_voxels_sequences.iterdir()
         }
+        kitti_input_sequences = {
+            parse_sequence_folder_name(x.name): x
+            for x in self.semantic_kitti_sequences.iterdir()
+        }
 
         for split_name, sequences in data_splits.items():
             split_data = self._split["data"][split_name]
             for sequence_index in sequences:
                 if not self.testset_flag:
+                    
+                    # for completeness, also check if sequence available in KITTI input folder.
+                    # This can be removed when this folder is not necessary at all.
+                    if sequence_index not in kitti_input_sequences:
+                        logger.warning(
+                            "Sequence {:02d} not available in KITTI folder. Skipping.".format(
+                                sequence_index
+                            )
+                        )
+                        continue
 
                     if sequence_index not in voxel_sequences:
                         logger.warning(
