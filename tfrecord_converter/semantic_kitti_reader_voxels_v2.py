@@ -101,6 +101,10 @@ class SemanticKittiReaderVoxelsV2:
         self._samples_to_generate = None
         self._label_mapping = None
         self._voxel_data_cache = {}
+        # these points will be kept for geometry training. Unlabeled but useful points.
+        self._unlabeled_index = None
+        # these points will be removed also for geometry training
+        self._noise_index = None
 
         self._make_split(input_data_version)
 
@@ -141,6 +145,17 @@ class SemanticKittiReaderVoxelsV2:
             yaml = YAML()
             data = yaml.load(file_conf_sem)
             self._config_data = {k: dict(v) for k, v in data.items()}
+
+        # figure out if there is an unlabeled class
+        label_names = self._config_data["labels"]
+        try:
+            self._unlabeled_index = next(k for k, v in label_names.items() if v == "unlabeled")
+        except StopIteration:
+            raise ValueError("No unlabeled label found. Check if this is intended.")
+        try:
+            self._noise_index = next(k for k, v in label_names.items() if v == "noise")
+        except StopIteration:
+            pass
 
         if split_version == "kitti":
             valid_splits = ["train", "valid"]
@@ -197,7 +212,7 @@ class SemanticKittiReaderVoxelsV2:
             split_data = self._split["data"][split_name]
             for sequence_index in sequences:
                 if not self.testset_flag:
-                    
+
                     # for completeness, also check if sequence available in KITTI input folder.
                     # This can be removed when this folder is not necessary at all.
                     if sequence_index not in kitti_input_sequences:
@@ -259,11 +274,11 @@ class SemanticKittiReaderVoxelsV2:
         # map unlabeled to extra entry 254 when voxelizing
         # Todo(risteon): Is this better?
         # -> Map noise to 254, this will get removed when parsing
-        # -> Map unlabed to 255 to keep for geometry training
-        unlabeled_index_nuscenes = 32
-        self._label_mapping[unlabeled_index_nuscenes] = 255
-        self._label_mapping_voxels[0] = 254
-        self._label_mapping_voxels[unlabeled_index_nuscenes] = 255
+        # -> Map unlabeled to 255 to keep for geometry training
+        self._label_mapping[self._unlabeled_index] = 255
+        self._label_mapping_voxels[self._unlabeled_index] = 255
+        if self._noise_index is not None:
+            self._label_mapping_voxels[self._noise_index] = 254
 
         assert all(x <= 255 for x in self._label_mapping.values())
         assert all(x <= 255 for x in self._label_mapping_voxels.values())
@@ -286,28 +301,7 @@ class SemanticKittiReaderVoxelsV2:
         if not self.testset_flag:
 
             sequence_str = self._seq_format(sample[0])
-            # frame_str = self._frame_format(sample[1])
-            # label_str = self._label_format(sample[1])
             voxel_str = self._voxel_format(sample[1])
-
-            # point_cloud_file = (
-            #     self.kitti_odometry_sequences
-            #     / sequence_str
-            #     / "velodyne"
-            #     / "{}.bin".format(frame_str)
-            # )
-            #
-            # # per-point labels. Might not exist for every frame.
-            # label_file = (
-            #     self.semantic_kitti_sequences
-            #     / sequence_str
-            #     / "labels"
-            #     / "{}.label".format(label_str)
-            # )
-            # try:
-            #     label_sem, _ = self.read_label(label_file)
-            # except FileNotFoundError:
-            #     label_sem = None
 
             voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
             voxel_data = self.read_semantic_kitti_voxel_data(
@@ -315,35 +309,16 @@ class SemanticKittiReaderVoxelsV2:
                 unpack_compressed=False,
             )
 
+            # contains accumulated point cloud and labels
             proto_file_accumulated = voxel_base / (voxel_str + "_points.tfrecord")
             proto_data_voxel = self.read_proto_file_voxel_data(proto_file_accumulated)
 
+            # contains input frame and labels (e.g. single frame for KITTI)
             proto_file_point_input = voxel_base / (voxel_str + "_input.tfrecord")
             proto_data_input = self.read_proto_file_input_data(proto_file_point_input)
 
         else:
             raise NotImplementedError()
-
-        # TODO(risteon): Code for single frame point cloud and sem labels for future
-        #                reference. Maybe include sem labels again sometime.
-        # point_cloud = self.read_pointcloud(point_cloud_file)
-        # r["point_cloud"] = point_cloud.flatten()
-        #
-        # if label_sem is not None:
-        #     if label_sem.shape[0] != point_cloud.shape[0]:
-        #         raise RuntimeError(
-        #             "Length of labels and point cloud does not match"
-        #             "({} and {})".format(str(point_cloud_file), str(label_file))
-        #         )
-        #     try:
-        #         label_sem = self._label_mapping(label_sem)
-        #     except TypeError:
-        #         raise RuntimeError(
-        #             "Invalid label entry in label data '{}'.".format(str(label_file))
-        #         )
-        #
-        #     assert np.all(label_sem <= 255)
-        #     r["semantic_labels"] = label_sem.astype(np.uint8).tobytes()
 
         # #####
         # the dynamic occlusion mask contains the actual input frame of the object
@@ -506,8 +481,26 @@ class SemanticKittiReaderVoxelsV2:
                 "Corrupted data in {}: Invalid splits.".format(str(proto_file))
             )
 
+        # Pointwise semantic labels
+        label_bytes = example.features.feature["labels"].bytes_list.value[0]
+        labels = tf.io.decode_raw(
+            label_bytes, out_type=tf.dtypes.uint16, little_endian=True
+        )
+        try:
+            labels = self._label_mapping(labels)
+        except TypeError:
+            raise RuntimeError(
+                "Invalid label entry in accumulated label data '{}'.".format(
+                    str(proto_file)
+                )
+            )
+
+        if len(points) != len(labels):
+            raise ValueError("Invalid labels. Length mismatch.")
+
         return {
             "point_cloud": points.reshape((-1,)),
             "point_cloud_transforms": transforms.reshape((-1,)),
             "point_cloud_splits": splits,
+            "semantic_labels": labels.astype(np.uint8).tobytes(),
         }

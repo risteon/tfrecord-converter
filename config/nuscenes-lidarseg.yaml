@@ -32,7 +32,7 @@ labels:
   29: "static.other"
   30: "static.vegetation"
   31: "vehicle.ego"
-  32: "unlabled"
+  32: "unlabeled"
   202: "human.pedestrian.adult.moving"
   203: "human.pedestrian.child.moving"
   204: "human.pedestrian.construction_worker.moving"
@@ -240,7 +240,7 @@ learning_map_inv: # inverse of previous map
   29: 29 #movable_object.trafficcone
   30: 30 #movable_object.pushable_pullable
   31: 31 #vehicle ego
-  32: 32 #static.geometry (unlabled static frames)
+  32: 32 #static.geometry (unlabeled static frames)
 
 learning_ignore: # Ignore classes
   0: True #noise
