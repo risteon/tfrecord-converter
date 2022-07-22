@@ -149,7 +149,9 @@ class SemanticKittiReaderVoxelsV2:
         # figure out if there is an unlabeled class
         label_names = self._config_data["labels"]
         try:
-            self._unlabeled_index = next(k for k, v in label_names.items() if v == "unlabeled")
+            self._unlabeled_index = next(
+                k for k, v in label_names.items() if v == "unlabeled"
+            )
         except StopIteration:
             raise ValueError("No unlabeled label found. Check if this is intended.")
         try:
@@ -298,46 +300,38 @@ class SemanticKittiReaderVoxelsV2:
 
         r = {"sample_id": sample_id.encode("utf-8")}
 
-        if not self.testset_flag:
+        if self.testset_flag:
+            raise NotImplementedError("Test set is not implemented.")
 
-            sequence_str = self._seq_format(sample[0])
-            voxel_str = self._voxel_format(sample[1])
+        sequence_str = self._seq_format(sample[0])
+        voxel_str = self._voxel_format(sample[1])
 
-            voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
+        voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
+        
+        try:
             voxel_data = self.read_semantic_kitti_voxel_data(
                 voxel_base / voxel_str,
                 unpack_compressed=False,
             )
+            r.update(**voxel_data)
+        except FileNotFoundError:
+            # silently drop missing information
+            pass
 
+        try:
             # contains accumulated point cloud and labels
             proto_file_accumulated = voxel_base / (voxel_str + "_points.tfrecord")
             proto_data_voxel = self.read_proto_file_voxel_data(proto_file_accumulated)
+            r.update(**proto_data_voxel)
+        except FileNotFoundError:
+            # silently drop missing information
+            pass
 
-            # contains input frame and labels (e.g. single frame for KITTI)
-            proto_file_point_input = voxel_base / (voxel_str + "_input.tfrecord")
-            proto_data_input = self.read_proto_file_input_data(proto_file_point_input)
-
-        else:
-            raise NotImplementedError()
-
-        # #####
-        # the dynamic occlusion mask contains the actual input frame of the object
-        # -> remove input voxels from dynamic occlusion mask
-        # ## Accumulated points ("points") contain occupied voxels. But include dynamic objects
-        # ## also only for first (aka "input") frame(s). So all statically occupied
-        # ## voxels do not need to be considered for the dyn occlusion map.
-        # ## This map only filters out free space points for later frames.
-        dynamic_occlusion = np.bitwise_and(
-            voxel_data["dynamic_occlusion"],
-            np.bitwise_not(self.packbits_kitti(voxel_data["points"] > 0)),
-        )
-
-        # We actually do not need the voxelized accumulated point cloud.
-        # r["voxel_points"] = voxel_data["points"].tobytes()
-        r["voxel_free"] = voxel_data["free"].tobytes()
-        r["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
-        r.update(**proto_data_voxel)
+        # contains input frame and labels (e.g. single frame for KITTI)
+        proto_file_point_input = voxel_base / (voxel_str + "_input.tfrecord")
+        proto_data_input = self.read_proto_file_input_data(proto_file_point_input)
         r.update(**proto_data_input)
+
         return r
 
     @staticmethod
@@ -407,6 +401,27 @@ class SemanticKittiReaderVoxelsV2:
                 x = np.fromfile(str(filepath), dtype=np.uint8)
 
             data[k] = x
+
+        # #####
+        # the dynamic occlusion mask contains the actual input frame of the object
+        # -> remove input voxels from dynamic occlusion mask
+        # ## Accumulated points ("points") contain occupied voxels. But include dynamic objects
+        # ## also only for first (aka "input") frame(s). So all statically occupied
+        # ## voxels do not need to be considered for the dyn occlusion map.
+        # ## This map only filters out free space points for later frames.
+        dynamic_occlusion = np.bitwise_and(
+            data["dynamic_occlusion"],
+            np.bitwise_not(
+                SemanticKittiReaderVoxelsV2.packbits_kitti(data["points"] > 0)
+            ),
+        )
+
+        # We actually do not need the voxelized accumulated point cloud for training.
+        # data["voxel_points"] = voxel_data["points"].tobytes()
+        del data["points"]
+        data["voxel_free"] = data["free"].tobytes()
+        del data["free"]
+        data["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
         return data
 
     def read_proto_file_voxel_data(self, proto_file: pathlib.Path):
