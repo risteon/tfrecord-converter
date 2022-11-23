@@ -416,11 +416,11 @@ class SemanticKittiReaderVoxelsV2:
             ),
         )
 
-        # We actually do not need the voxelized accumulated point cloud for training.
-        # data["voxel_points"] = voxel_data["points"].tobytes()
-        del data["points"]
+        data["voxel_points"] = data["points"].tobytes()
         data["voxel_free"] = data["free"].tobytes()
         del data["free"]
+        del data["points"]
+        del data["dynamic_occlusion"]
         data["voxel_dynamic_occlusion"] = dynamic_occlusion.tobytes()
         return data
 
