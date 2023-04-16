@@ -45,7 +45,7 @@ class SemanticKittiReaderVoxelsV2:
         semantic_kitti_voxels_sequences: str,
         input_data_version: str = "nuscenes",
     ):
-        if input_data_version not in ["kitti", "nuscenes"]:
+        if input_data_version not in ["kitti", "nuscenes", "waymo"]:
             raise ValueError(f"Unknown input format '{input_data_version}.")
 
         self.kitti_odometry_sequences = pathlib.Path(kitti_odometry_sequences)
@@ -64,6 +64,12 @@ class SemanticKittiReaderVoxelsV2:
                 pathlib.Path(__file__).parent.parent
                 / "config"
                 / "nuscenes-lidarseg.yaml"
+            )
+        elif input_data_version == "waymo":
+            self.config_semantic: pathlib.Path = (
+                    pathlib.Path(__file__).parent.parent
+                    / "config"
+                    / "waymo-lidarseg.yaml"
             )
         else:
             assert False
