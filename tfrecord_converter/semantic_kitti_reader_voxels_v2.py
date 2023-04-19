@@ -24,6 +24,8 @@ handler.setFormatter(formatter)
 handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 
+WAYMO_SEQ_PREFIX = "segment-"
+
 
 class SemanticKittiReaderVoxelsV2:
     """
@@ -39,11 +41,11 @@ class SemanticKittiReaderVoxelsV2:
     """
 
     def __init__(
-        self,
-        kitti_odometry_sequences: str,
-        semantic_kitti_sequences: str,
-        semantic_kitti_voxels_sequences: str,
-        input_data_version: str = "nuscenes",
+            self,
+            kitti_odometry_sequences: str,
+            semantic_kitti_sequences: str,
+            semantic_kitti_voxels_sequences: str,
+            input_data_version: str = "nuscenes",
     ):
         if input_data_version not in ["kitti", "nuscenes", "waymo"]:
             raise ValueError(f"Unknown input format '{input_data_version}.")
@@ -57,13 +59,14 @@ class SemanticKittiReaderVoxelsV2:
 
         if input_data_version == "kitti":
             self.config_semantic: pathlib.Path = (
-                pathlib.Path(__file__).parent.parent / "config" / "semantic-kitti.yaml"
+                    pathlib.Path(
+                        __file__).parent.parent / "config" / "semantic-kitti.yaml"
             )
         elif input_data_version == "nuscenes":
             self.config_semantic: pathlib.Path = (
-                pathlib.Path(__file__).parent.parent
-                / "config"
-                / "nuscenes-lidarseg.yaml"
+                    pathlib.Path(__file__).parent.parent
+                    / "config"
+                    / "nuscenes-lidarseg.yaml"
             )
         elif input_data_version == "waymo":
             self.config_semantic: pathlib.Path = (
@@ -138,6 +141,10 @@ class SemanticKittiReaderVoxelsV2:
             # TODO(risteon) Fix input. 6 digits would be more consistent
             self._label_format = lambda x: "{:05d}".format(x)
             self._frame_format = lambda x: "{:05d}".format(x)
+        elif split_version == "waymo":
+            self._seq_format = lambda x: "{:d}".format(x)
+            self._label_format = lambda x: "{:06d}".format(x)
+            self._frame_format = lambda x: "{:06d}".format(x)
         else:
             assert False
 
@@ -188,6 +195,27 @@ class SemanticKittiReaderVoxelsV2:
                 k: sorted([parse_nuscenes_scene_name(x) for x in v])
                 for k, v in data_splits.items()
             }
+        elif split_version == "waymo":
+
+            # sequence folders are "segment-XXXXXXX_blabla...". Just keep XXX as ID
+            def parse_waymo_scene_name(x):
+                return int(
+                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX):x.find("_")]
+                )
+
+            # Obtain shortened waymo sequence names.
+            valid_splits = ["train", "valid"]
+            map_split_names = {"train": "train", "valid": "val", "test": "test"}
+            # config file holds kitti split
+            data_splits = {
+                map_split_names[k]: v
+                for k, v in self._config_data["split"].items()
+                if k in valid_splits
+            }
+            data_splits = {
+                k: sorted([parse_waymo_scene_name(x) for x in v])
+                for k, v in data_splits.items()
+            }
         else:
             raise NotImplementedError(f"Unknown split {split_version}.")
 
@@ -200,13 +228,20 @@ class SemanticKittiReaderVoxelsV2:
 
         self._samples_to_generate = []
 
-        def parse_sequence_folder_name(x):
-            try:
-                return int(x)
-            except ValueError:
-                # will not be in sequence split and therefore skipped
-                return -1
+        if split_version == "waymo":
+            def parse_sequence_folder_name(x):
+                return int(
+                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX):x.find("_")]
+                )
+        else:
+            def parse_sequence_folder_name(x):
+                try:
+                    return int(x)
+                except ValueError:
+                    # will not be in sequence split and therefore skipped
+                    return -1
 
+        # these two lists implicitly require the same subfolders in both locations.
         voxel_sequences = {
             parse_sequence_folder_name(x.name): x
             for x in self.semantic_kitti_voxels_sequences.iterdir()
@@ -225,7 +260,7 @@ class SemanticKittiReaderVoxelsV2:
                     # This can be removed when this folder is not necessary at all.
                     if sequence_index not in kitti_input_sequences:
                         logger.warning(
-                            "Sequence {:02d} not available in KITTI folder. Skipping.".format(
+                            "Sequence {} not available in KITTI folder. Skipping.".format(
                                 sequence_index
                             )
                         )
@@ -233,7 +268,7 @@ class SemanticKittiReaderVoxelsV2:
 
                     if sequence_index not in voxel_sequences:
                         logger.warning(
-                            "Sequence {:02d} not available. Skipping.".format(
+                            "Sequence {} not available. Skipping.".format(
                                 sequence_index
                             )
                         )
@@ -242,7 +277,7 @@ class SemanticKittiReaderVoxelsV2:
                     voxel_dir = voxel_sequences[sequence_index]
                     if not voxel_dir.is_dir():
                         logger.warning(
-                            "Voxels not available in sequence {:02d}. Skipping.".format(
+                            "Voxels not available in sequence {}. Skipping.".format(
                                 sequence_index
                             )
                         )
@@ -250,24 +285,24 @@ class SemanticKittiReaderVoxelsV2:
 
                     self._voxel_data_cache[sequence_index] = {
                         int(x.stem[:6]): x
-                        for x in (voxel_dir).iterdir()
-                        if x.suffix == ".tfrecord"
+                        for x in voxel_dir.iterdir()
+                        if x.name.endswith("input.tfrecord")
                     }
 
                     split_data.extend(
                         [
                             self.sample_id_template.format(seq=sequence_index, frame=x)
                             for x in sorted(
-                                list(self._voxel_data_cache[sequence_index].keys())
-                            )
+                            list(self._voxel_data_cache[sequence_index].keys())
+                        )
                         ]
                     )
                     self._samples_to_generate.extend(
                         [
                             (sequence_index, x)
                             for x in sorted(
-                                list(self._voxel_data_cache[sequence_index].keys())
-                            )
+                            list(self._voxel_data_cache[sequence_index].keys())
+                        )
                         ]
                     )
                 else:
@@ -313,7 +348,7 @@ class SemanticKittiReaderVoxelsV2:
         voxel_str = self._voxel_format(sample[1])
 
         voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
-        
+
         try:
             voxel_data = self.read_semantic_kitti_voxel_data(
                 voxel_base / voxel_str,
@@ -380,8 +415,8 @@ class SemanticKittiReaderVoxelsV2:
 
     @staticmethod
     def read_semantic_kitti_voxel_data(
-        semantic_kitti_sample: pathlib.Path,
-        unpack_compressed: bool = False,
+            semantic_kitti_sample: pathlib.Path,
+            unpack_compressed: bool = False,
     ) -> {str: np.ndarray}:
         # compressed/uncompressed (compressed means 8 booleans are packed into one byte)
         d = {
@@ -393,7 +428,7 @@ class SemanticKittiReaderVoxelsV2:
         data = {}
         for k, compressed in d.items():
             filepath = semantic_kitti_sample.parent / (
-                semantic_kitti_sample.stem + "." + k
+                    semantic_kitti_sample.stem + "." + k
             )
             if not filepath.is_file():
                 raise FileNotFoundError("Cannot find voxel label file '{}'.".format(k))

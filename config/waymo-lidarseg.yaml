@@ -1,6 +1,6 @@
 # This file is covered by the LICENSE file in the root of this project.
 labels: 
-  0: "undefined"
+  0: "unlabeled"
   1: "car"
   2: "truck"
   3: "bus"
