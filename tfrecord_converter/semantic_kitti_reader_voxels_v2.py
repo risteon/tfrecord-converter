@@ -41,11 +41,11 @@ class SemanticKittiReaderVoxelsV2:
     """
 
     def __init__(
-            self,
-            kitti_odometry_sequences: str,
-            semantic_kitti_sequences: str,
-            semantic_kitti_voxels_sequences: str,
-            input_data_version: str = "nuscenes",
+        self,
+        kitti_odometry_sequences: str,
+        semantic_kitti_sequences: str,
+        semantic_kitti_voxels_sequences: str,
+        input_data_version: str = "nuscenes",
     ):
         if input_data_version not in ["kitti", "nuscenes", "waymo"]:
             raise ValueError(f"Unknown input format '{input_data_version}.")
@@ -59,20 +59,17 @@ class SemanticKittiReaderVoxelsV2:
 
         if input_data_version == "kitti":
             self.config_semantic: pathlib.Path = (
-                    pathlib.Path(
-                        __file__).parent.parent / "config" / "semantic-kitti.yaml"
+                pathlib.Path(__file__).parent.parent / "config" / "semantic-kitti.yaml"
             )
         elif input_data_version == "nuscenes":
             self.config_semantic: pathlib.Path = (
-                    pathlib.Path(__file__).parent.parent
-                    / "config"
-                    / "nuscenes-lidarseg.yaml"
+                pathlib.Path(__file__).parent.parent
+                / "config"
+                / "nuscenes-lidarseg.yaml"
             )
         elif input_data_version == "waymo":
             self.config_semantic: pathlib.Path = (
-                    pathlib.Path(__file__).parent.parent
-                    / "config"
-                    / "waymo-lidarseg.yaml"
+                pathlib.Path(__file__).parent.parent / "config" / "waymo-lidarseg.yaml"
             )
         else:
             assert False
@@ -200,7 +197,7 @@ class SemanticKittiReaderVoxelsV2:
             # sequence folders are "segment-XXXXXXX_blabla...". Just keep XXX as ID
             def parse_waymo_scene_name(x):
                 return int(
-                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX):x.find("_")]
+                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX) : x.find("_")]
                 )
 
             # Obtain shortened waymo sequence names.
@@ -229,11 +226,14 @@ class SemanticKittiReaderVoxelsV2:
         self._samples_to_generate = []
 
         if split_version == "waymo":
+
             def parse_sequence_folder_name(x):
                 return int(
-                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX):x.find("_")]
+                    x[x.find(WAYMO_SEQ_PREFIX) + len(WAYMO_SEQ_PREFIX) : x.find("_")]
                 )
+
         else:
+
             def parse_sequence_folder_name(x):
                 try:
                     return int(x)
@@ -293,16 +293,19 @@ class SemanticKittiReaderVoxelsV2:
                         [
                             self.sample_id_template.format(seq=sequence_index, frame=x)
                             for x in sorted(
-                            list(self._voxel_data_cache[sequence_index].keys())
-                        )
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
                         ]
                     )
+                    # Sequence index is only an integer
+                    # -> save full sequence folder in samples to recover later
+                    full_sequence_name = voxel_dir.name
                     self._samples_to_generate.extend(
                         [
-                            (sequence_index, x)
+                            (sequence_index, full_sequence_name, x)
                             for x in sorted(
-                            list(self._voxel_data_cache[sequence_index].keys())
-                        )
+                                list(self._voxel_data_cache[sequence_index].keys())
+                            )
                         ]
                     )
                 else:
@@ -331,23 +334,26 @@ class SemanticKittiReaderVoxelsV2:
             self._label_mapping_voxels.get, otypes=[np.int64]
         )
 
-    def make_sample_id(self, sample: typing.Tuple[int, int]):
+    def make_sample_id(self, sample: typing.Tuple[int, str, int]):
         if not self.testset_flag:
-            return self.sample_id_template.format(seq=sample[0], frame=sample[1])
+            return self.sample_id_template.format(seq=sample[0], frame=sample[2])
         else:
             raise NotImplementedError()
 
-    def read(self, sample: typing.Tuple[int, int], sample_id: str) -> {str: typing.Any}:
+    def read(
+        self, sample: typing.Tuple[int, str, int], sample_id: str
+    ) -> {str: typing.Any}:
 
         r = {"sample_id": sample_id.encode("utf-8")}
 
         if self.testset_flag:
             raise NotImplementedError("Test set is not implemented.")
 
-        sequence_str = self._seq_format(sample[0])
-        voxel_str = self._voxel_format(sample[1])
+        _sequence_str = self._seq_format(sample[0])
+        sequence_folder = sample[1]
+        voxel_str = self._voxel_format(sample[2])
 
-        voxel_base = self.semantic_kitti_voxels_sequences / sequence_str
+        voxel_base = self.semantic_kitti_voxels_sequences / sequence_folder
 
         try:
             voxel_data = self.read_semantic_kitti_voxel_data(
@@ -415,8 +421,8 @@ class SemanticKittiReaderVoxelsV2:
 
     @staticmethod
     def read_semantic_kitti_voxel_data(
-            semantic_kitti_sample: pathlib.Path,
-            unpack_compressed: bool = False,
+        semantic_kitti_sample: pathlib.Path,
+        unpack_compressed: bool = False,
     ) -> {str: np.ndarray}:
         # compressed/uncompressed (compressed means 8 booleans are packed into one byte)
         d = {
@@ -428,7 +434,7 @@ class SemanticKittiReaderVoxelsV2:
         data = {}
         for k, compressed in d.items():
             filepath = semantic_kitti_sample.parent / (
-                    semantic_kitti_sample.stem + "." + k
+                semantic_kitti_sample.stem + "." + k
             )
             if not filepath.is_file():
                 raise FileNotFoundError("Cannot find voxel label file '{}'.".format(k))
